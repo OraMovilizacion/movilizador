@@ -25,11 +25,16 @@ foreach (['assetScript' => 'js', 'assetStyle' => 'css'] as $variable => $extensi
         }
     }
 }
-// Los archivos con nombre fijo (dist/assets/portal.js y portal.css) tienen prioridad: así un manifest
-// viejo o archivos con hash antiguos que sigan en el servidor nunca hacen cargar una versión anterior.
-foreach (['assetScript' => 'portal.js', 'assetStyle' => 'portal.css'] as $variable => $fixedName) {
-    if (is_file(__DIR__ . '/dist/assets/' . $fixedName)) {
-        $$variable = 'dist/assets/' . $fixedName;
+// Se usa el archivo más reciente entre portal.js / portal.css (copiados ya compilados) y los portal-*.js /
+// portal-*.css que genera `npm run build`, así nunca se carga una versión anterior.
+foreach (['assetScript' => 'js', 'assetStyle' => 'css'] as $variable => $extension) {
+    $files = array_merge(
+        glob(__DIR__ . '/dist/assets/portal.' . $extension) ?: [],
+        glob(__DIR__ . '/dist/assets/portal-*.' . $extension) ?: []
+    );
+    if ($files) {
+        usort($files, static fn(string $a, string $b): int => filemtime($b) <=> filemtime($a));
+        $$variable = 'dist/assets/' . basename($files[0]);
     }
 }
 // Versión por fecha de modificación para que el navegador no use una copia en caché.
