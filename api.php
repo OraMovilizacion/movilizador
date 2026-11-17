@@ -1292,11 +1292,18 @@ try {
         $pdo->beginTransaction();
         try {
             for ($index = 0; $index < $count; $index++) {
-                if (($files['error'][$index] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK ||
+                $uploadError = $files['error'][$index] ?? UPLOAD_ERR_NO_FILE;
+                if ($uploadError === UPLOAD_ERR_INI_SIZE || $uploadError === UPLOAD_ERR_FORM_SIZE) {
+                    throw new InvalidArgumentException('Una foto supera el límite de subida del servidor (upload_max_filesize). Intenta con una foto más liviana.');
+                }
+                if ($uploadError !== UPLOAD_ERR_OK ||
                     !isset($files['tmp_name'][$index], $files['size'][$index]) ||
-                    (int) $files['size'][$index] < 1 || (int) $files['size'][$index] > 8 * 1024 * 1024 ||
+                    (int) $files['size'][$index] < 1 ||
                     !is_uploaded_file($files['tmp_name'][$index])) {
-                    throw new InvalidArgumentException('Cada imagen debe pesar como máximo 8 MB.');
+                    throw new InvalidArgumentException('No se pudo recibir una de las fotos. Vuelve a intentarlo.');
+                }
+                if ((int) $files['size'][$index] > 25 * 1024 * 1024) {
+                    throw new InvalidArgumentException('Cada imagen debe pesar como máximo 25 MB.');
                 }
                 $type = $mime->file($files['tmp_name'][$index]);
                 if (!isset($allowedTypes[$type])) {

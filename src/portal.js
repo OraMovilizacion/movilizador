@@ -2867,6 +2867,25 @@ function workflowNotice(message, isError = true) {
   notice.classList.toggle("success", !isError);
 }
 
+async function compressPhoto(file) {
+  // Reduce fotos grandes del teléfono antes de subirlas (máx. 2200 px, JPEG).
+  try {
+    if (!/^image\/(jpeg|png|webp)$/.test(file.type) || file.size < 1.5 * 1024 * 1024) return file;
+    const bitmap = await createImageBitmap(file);
+    const scale = Math.min(1, 2200 / Math.max(bitmap.width, bitmap.height));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.round(bitmap.width * scale);
+    canvas.height = Math.round(bitmap.height * scale);
+    canvas.getContext("2d").drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    bitmap.close?.();
+    const blob = await new Promise(resolve => canvas.toBlob(resolve, "image/jpeg", 0.85));
+    if (!blob || blob.size >= file.size) return file;
+    return new File([blob], file.name.replace(/\.[^.]+$/, "") + ".jpg", { type: "image/jpeg" });
+  } catch (error) {
+    return file;
+  }
+}
+
 async function uploadWorkflowPhotos(input, files) {
   if (!files.length) return;
   if (files.length > 5) throw new Error("Puedes subir hasta 5 fotos por tanda. Selecciona menos imágenes.");
@@ -2876,7 +2895,7 @@ async function uploadWorkflowPhotos(input, files) {
   if (input.dataset.photoCategory === "vehiculo") {
     form.append("vehicleId", input.dataset.vehicleId || "");
   }
-  files.forEach(file => form.append("photos[]", file));
+  (await Promise.all(files.map(compressPhoto))).forEach(file => form.append("photos[]", file));
   await request("photo-upload", { method: "POST", form });
   const status = input.dataset.photoCategory === "vehiculo"
     ? input.closest(".vehicle-row")?.querySelector("[data-vehicle-photo-status]")
@@ -3024,7 +3043,7 @@ async function uploadPhotos(input) {
   if (!input.files?.length) return;
   const form = new FormData();
   form.append("assignmentId", input.closest("[data-assignment-id]").dataset.assignmentId);
-  [...input.files].slice(0, 5).forEach(file => form.append("photos[]", file));
+  (await Promise.all([...input.files].slice(0, 5).map(compressPhoto))).forEach(file => form.append("photos[]", file));
   try {
     await request("photo-upload", { method: "POST", form });
     showNotice("Las fotos de asistencia se guardaron correctamente.", false);
