@@ -43,6 +43,9 @@ header("Content-Security-Policy: default-src 'self'; script-src 'self'; style-sr
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#0c1018">
+  <link rel="icon" type="image/svg+xml" href="assets/icons/favicon.svg">
+  <link rel="icon" type="image/png" sizes="32x32" href="assets/icons/favicon-32.png">
+  <link rel="apple-touch-icon" href="assets/icons/apple-touch-icon.png">
   <title><?= $adminPanel ? 'Panel administrativo ORA' : 'Portal de movilización ORA' ?></title>
   <?php if ($assetStyle !== null): ?>
     <link rel="stylesheet" href="<?= $assetStyle ?>">
