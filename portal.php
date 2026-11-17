@@ -44,6 +44,34 @@ foreach (['assetScript', 'assetStyle'] as $variable) {
         $$variable = htmlspecialchars($$variable . (is_file($file) ? '?v=' . filemtime($file) : ''), ENT_QUOTES, 'UTF-8');
     }
 }
+$serverUserName = null;
+$serverStateName = null;
+if (!$adminPanel) {
+    try {
+        require_once __DIR__ . '/db.php';
+        $serverHttps = isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== '' && strtolower((string) $_SERVER['HTTPS']) !== 'off';
+        session_name('movilizaciones_session');
+        session_set_cookie_params(['lifetime' => 0, 'path' => '/', 'secure' => $serverHttps, 'httponly' => true, 'samesite' => 'Lax']);
+        session_start(['read_and_close' => true]);
+        $sessionUser = $_SESSION['user'] ?? null;
+        if (is_array($sessionUser) && ($sessionUser['role'] ?? '') !== 'admin') {
+            $serverUserName = (string) ($sessionUser['name'] ?? '');
+            $serverStateName = $sessionUser['territoryName'] ?? null;
+            if ($serverStateName === null && !empty($sessionUser['territoryId'])) {
+                $stateStatement = database(load_config())->prepare('SELECT nombre FROM unidades_territoriales WHERE id = ?');
+                $stateStatement->execute([(int) $sessionUser['territoryId']]);
+                $serverStateName = $stateStatement->fetchColumn() ?: null;
+            }
+        }
+    } catch (Throwable $error) {
+        error_log('Movilizaciones portal identity: ' . $error->getMessage());
+    }
+}
+$serverInitials = '';
+foreach (array_slice(preg_split('/\s+/u', trim((string) $serverUserName)) ?: [], 0, 2) as $namePart) {
+    $serverInitials .= mb_strtoupper(mb_substr($namePart, 0, 1));
+}
+$e = static fn(?string $value): string => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
 header('X-Content-Type-Options: nosniff');
 header('Referrer-Policy: same-origin');
 header('X-Frame-Options: DENY');
@@ -65,6 +93,16 @@ header("Content-Security-Policy: default-src 'self'; script-src 'self'; style-sr
   <?php if ($assetScript !== null): ?>
     <script type="module" src="<?= $assetScript ?>"></script>
   <?php endif; ?>
+  <style>
+    .mobilizer-bar,.logout-warning{display:none}
+    body[data-portal-mode="mobilizer"] .mobilizer-bar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:18px;padding:10px 12px;border:1px solid #dfe4ee;border-radius:18px;background:#fff}
+    body[data-portal-mode="mobilizer"] .logout-warning{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:18px;padding:12px 14px;border-radius:14px;background:#fff4dc;color:#7a4a05;font-size:14px}
+    .mobilizer-id{display:flex;min-width:0;align-items:center;gap:12px}
+    .mobilizer-id-text{display:flex;min-width:0;flex-direction:column;align-items:flex-start;gap:3px}
+    .mobilizer-id-text strong{font-size:15px}
+    .state-chip{display:inline-flex;padding:2px 9px;border-radius:999px;background:#e4ecff;color:#1f45b0;font-size:12px;font-weight:600;white-space:nowrap}
+    .logout-form{margin:0}
+  </style>
 </head>
 <body data-portal-mode="<?= $adminPanel ? 'admin' : 'mobilizer' ?>">
   <?php if ($assetScript === null): ?>
@@ -121,11 +159,17 @@ header("Content-Security-Policy: default-src 'self'; script-src 'self'; style-sr
         <?php if (!$adminPanel): ?>
         <div class="mobilizer-bar" id="mobilizer-bar">
           <span class="mobilizer-id">
-            <span class="avatar" id="bar-avatar">US</span>
-            <span class="mobilizer-id-text"><strong id="bar-name">Usuario</strong><span class="state-chip" id="bar-state">Estado</span></span>
+            <span class="avatar" id="bar-avatar"><?= $e($serverInitials ?: 'US') ?></span>
+            <span class="mobilizer-id-text"><strong id="bar-name"><?= $e($serverUserName ?: 'Usuario') ?></strong><span class="state-chip" id="bar-state"><?= $serverStateName ? 'Estado ' . $e($serverStateName) : 'Sin estado asignado' ?></span></span>
           </span>
-          <button class="button secondary" id="bar-logout-button" type="button">Cerrar sesión</button>
+          <form method="post" action="logout.php" class="logout-form"><button class="button secondary" type="submit">Cerrar sesión</button></form>
         </div>
+        <?php if (($_GET['aviso'] ?? '') === 'viaje'): ?>
+        <div class="logout-warning">
+          <p>Tienes un viaje en curso. Confirma la llegada o el regreso antes de cerrar sesión.</p>
+          <form method="post" action="logout.php" class="logout-form"><input type="hidden" name="forzar" value="1"><button class="button secondary" type="submit">Cerrar sesión de todos modos</button></form>
+        </div>
+        <?php endif; ?>
         <?php endif; ?>
         <section class="page-heading">
           <div><?php if (!$adminPanel): ?><p class="eyebrow">Panel de trabajo</p><?php endif; ?><h1><span id="heading-name"><?= $adminPanel ? 'Seguimiento en vivo' : 'Movilizaciones disponibles' ?></span></h1><p class="subtle" id="heading-description"><?= $adminPanel ? 'Ubicación y avance de los movilizadores en ruta.' : 'Selecciona una movilización para completar los pasos y registrar tu viaje.' ?></p></div>
