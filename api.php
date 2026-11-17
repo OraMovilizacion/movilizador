@@ -176,7 +176,7 @@ $isAdminArea = $area === 'admin';
 session_name($isAdminArea ? 'movilizaciones_admin' : 'movilizaciones_session');
 session_set_cookie_params([
     'lifetime' => 0,
-    'path' => '/movilizacion/',
+    'path' => '/',
     'secure' => $isHttps,
     'httponly' => true,
     'samesite' => 'Lax'

@@ -23,10 +23,13 @@ function load_config(): array
         }
     }
 
-    foreach (['db_host', 'db_name', 'db_user', 'db_password', 'app_secret'] as $requiredKey) {
-        if (!isset($config[$requiredKey]) || $config[$requiredKey] === '') {
+    foreach (['db_host', 'db_name', 'db_user', 'app_secret'] as $requiredKey) {
+        if (!array_key_exists($requiredKey, $config) || trim((string) $config[$requiredKey]) === '') {
             throw new RuntimeException('Falta configurar la base de datos o el secreto de la aplicación.');
         }
+    }
+    if (!array_key_exists('db_password', $config)) {
+        $config['db_password'] = '';
     }
     if (strlen((string) $config['app_secret']) < 32) {
         throw new RuntimeException('El secreto de la aplicación debe tener al menos 32 caracteres.');
