@@ -11,8 +11,27 @@ if (is_file($manifestPath)) {
         $entry = $manifest['src/portal.js'] ?? null;
     }
 }
-$assetScript = is_array($entry) && isset($entry['file']) ? 'dist/' . htmlspecialchars($entry['file'], ENT_QUOTES, 'UTF-8') : null;
-$assetStyle = is_array($entry) && !empty($entry['css'][0]) ? 'dist/' . htmlspecialchars($entry['css'][0], ENT_QUOTES, 'UTF-8') : null;
+$assetScript = is_array($entry) && isset($entry['file']) ? 'dist/' . $entry['file'] : null;
+$assetStyle = is_array($entry) && !empty($entry['css'][0]) ? 'dist/' . $entry['css'][0] : null;
+// Si el manifest quedó desactualizado (p. ej. no se copió la carpeta oculta dist/.vite),
+// se usan los archivos portal-*.js / portal-*.css más recientes de dist/assets.
+foreach (['assetScript' => 'js', 'assetStyle' => 'css'] as $variable => $extension) {
+    $files = glob(__DIR__ . '/dist/assets/portal-*.' . $extension) ?: [];
+    if ($files) {
+        usort($files, static fn(string $a, string $b): int => filemtime($b) <=> filemtime($a));
+        $current = $$variable !== null ? __DIR__ . '/' . $$variable : null;
+        if ($current === null || !is_file($current) || filemtime($files[0]) > filemtime($current)) {
+            $$variable = 'dist/assets/' . basename($files[0]);
+        }
+    }
+}
+// Versión por fecha de modificación para que el navegador no use una copia en caché.
+foreach (['assetScript', 'assetStyle'] as $variable) {
+    if ($$variable !== null) {
+        $file = __DIR__ . '/' . $$variable;
+        $$variable = htmlspecialchars($$variable . (is_file($file) ? '?v=' . filemtime($file) : ''), ENT_QUOTES, 'UTF-8');
+    }
+}
 header('X-Content-Type-Options: nosniff');
 header('Referrer-Policy: same-origin');
 header('X-Frame-Options: DENY');
