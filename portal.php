@@ -121,7 +121,7 @@ header("Content-Security-Policy: default-src 'self'; script-src 'self'; style-sr
           <div class="tracking-layout">
             <div class="tracking-map-panel">
               <div class="tracking-map-frame" id="tracking-overview-map"></div>
-              <p class="tracking-map-note"><span class="tracking-legend"><i class="legend-live"></i> Señal recibida</span><span class="tracking-legend"><i class="legend-estimated"></i> Avance estimado sin señal</span>La posición estimada sigue la ruta y el tiempo calculados; no reemplaza el GPS del dispositivo.</p>
+              <p class="tracking-map-note"><span class="tracking-legend"><i class="legend-live"></i> Señal recibida</span><span class="tracking-legend"><i class="legend-estimated"></i> Avance estimado (solo antes de recibir señal)</span><span class="tracking-legend"><i class="legend-walked"></i> Ruta de ida</span><span class="tracking-legend"><i class="legend-return"></i> Ruta de retorno</span>Toca el ✓ de un movilizador que llegó para ver todo el recorrido que hizo.</p>
             </div>
             <aside class="tracking-sidebar">
               <section class="tracking-presentation-events">

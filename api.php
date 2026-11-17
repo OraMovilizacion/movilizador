@@ -685,7 +685,7 @@ try {
             'SELECT me.movilizacion_id, me.id AS assignment_id, u.nombre AS responsable, ' .
             'me.personas_planificadas, me.personas_asistentes, me.requiere_transporte, me.vehiculos_json, ' .
             'me.punto_salida, me.ruta_personal_geojson, me.ruta_personal_duracion_segundos, ' .
-            'ts.estado AS tracking_status, ts.llegada_confirmada_en, UNIX_TIMESTAMP(ts.iniciado_en) AS tracking_started_at_epoch, ' .
+            'ts.estado AS tracking_status, ts.tipo AS tracking_leg, ts.llegada_confirmada_en, UNIX_TIMESTAMP(ts.iniciado_en) AS tracking_started_at_epoch, ' .
             '(SELECT tp.latitud FROM tracking_puntos tp WHERE tp.tracking_sesion_id = ts.id ORDER BY tp.registrado_en DESC, tp.id DESC LIMIT 1) AS latitude, ' .
             '(SELECT tp.longitud FROM tracking_puntos tp WHERE tp.tracking_sesion_id = ts.id ORDER BY tp.registrado_en DESC, tp.id DESC LIMIT 1) AS longitude, ' .
             '(SELECT tp.precision_metros FROM tracking_puntos tp WHERE tp.tracking_sesion_id = ts.id ORDER BY tp.registrado_en DESC, tp.id DESC LIMIT 1) AS accuracy, ' .
@@ -708,6 +708,39 @@ try {
         );
         $mobilizerQuery->execute($eventIds);
         respond(['events' => $activeEvents, 'mobilizers' => $mobilizerQuery->fetchAll()]);
+    }
+
+    if ($action === 'tracking-route' && $method === 'GET') {
+        require_admin($user);
+        require_module($user, 'tracking');
+        $assignmentId = filter_var($_GET['assignmentId'] ?? null, FILTER_VALIDATE_INT);
+        if ($assignmentId === false || $assignmentId < 1) {
+            respond(['error' => 'La asignación solicitada no es válida.'], 400);
+        }
+        $legQuery = $pdo->prepare(
+            'SELECT id, tipo, estado, iniciado_en, finalizado_en, llegada_confirmada_en FROM tracking_sesiones ' .
+            'WHERE movilizacion_ente_id = ? ORDER BY iniciado_en, id'
+        );
+        $legQuery->execute([$assignmentId]);
+        $pointQuery = $pdo->prepare(
+            'SELECT latitud, longitud FROM tracking_puntos WHERE tracking_sesion_id = ? ORDER BY secuencia LIMIT 20000'
+        );
+        $legs = [];
+        foreach ($legQuery->fetchAll() as $leg) {
+            $pointQuery->execute([$leg['id']]);
+            $points = [];
+            foreach ($pointQuery->fetchAll() as $point) {
+                $points[] = [(float) $point['longitud'], (float) $point['latitud']];
+            }
+            $legs[] = [
+                'type' => $leg['tipo'],
+                'finished' => $leg['llegada_confirmada_en'] !== null,
+                'startedAt' => $leg['iniciado_en'],
+                'finishedAt' => $leg['llegada_confirmada_en'],
+                'points' => $points
+            ];
+        }
+        respond(['legs' => $legs]);
     }
 
     if ($action === 'event-create' && $method === 'POST') {
@@ -902,7 +935,7 @@ try {
 
             $sessionsByAssignment = [];
             $sessionQuery = $pdo->prepare(
-                'SELECT ts.id, ts.movilizacion_ente_id AS assignment_id, ts.estado, ts.iniciado_en, ts.finalizado_en, ' .
+                'SELECT ts.id, ts.movilizacion_ente_id AS assignment_id, ts.tipo, ts.estado, ts.iniciado_en, ts.finalizado_en, ' .
                 'ts.llegada_confirmada_en, ts.consentimiento_version, ts.consentimiento_aceptado_en ' .
                 'FROM tracking_sesiones ts JOIN movilizacion_entes me ON me.id = ts.movilizacion_ente_id ' .
                 'WHERE me.movilizacion_id = ? ORDER BY ts.iniciado_en'
@@ -1008,7 +1041,7 @@ try {
         $assignments->execute($assignmentParameters);
         $assignmentRows = $assignments->fetchAll();
         $sessionQuery = $pdo->prepare(
-            'SELECT id, estado, iniciado_en, finalizado_en, llegada_confirmada_en FROM tracking_sesiones WHERE movilizacion_ente_id = ? ORDER BY iniciado_en DESC'
+            'SELECT id, tipo, estado, iniciado_en, finalizado_en, llegada_confirmada_en FROM tracking_sesiones WHERE movilizacion_ente_id = ? ORDER BY iniciado_en DESC, id DESC'
         );
         $vehiclePhotoQuery = $pdo->prepare(
             'SELECT vehiculo_id, COUNT(*) AS total FROM fotos_asistencia ' .
@@ -1302,11 +1335,28 @@ try {
         $data = request_data();
         $assignmentId = filter_var($data['assignmentId'] ?? null, FILTER_VALIDATE_INT);
         $consentAccepted = ($data['consentAccepted'] ?? false) === true;
+        $leg = ($data['leg'] ?? 'ida') === 'retorno' ? 'retorno' : 'ida';
         if ($assignmentId === false || $assignmentId < 1 || !$consentAccepted) {
             respond(['error' => 'Confirma tu consentimiento antes de iniciar el tracking.'], 422);
         }
         require_assignment_access($pdo, $user, $assignmentId, 'No tienes permiso para iniciar el tracking de esta movilización.');
-        if ($user['role'] !== 'admin') {
+        if ($leg === 'retorno') {
+            $legState = $pdo->prepare(
+                "SELECT " .
+                "SUM(tipo = 'ida' AND llegada_confirmada_en IS NOT NULL) AS arrived, " .
+                "SUM(estado = 'en_curso') AS running, " .
+                "SUM(tipo = 'retorno') AS returns " .
+                "FROM tracking_sesiones WHERE movilizacion_ente_id = ?"
+            );
+            $legState->execute([$assignmentId]);
+            $state = $legState->fetch();
+            if ((int) ($state['arrived'] ?? 0) < 1) {
+                respond(['error' => 'Confirma primero tu llegada al destino para iniciar el retorno.'], 409);
+            }
+            if ((int) ($state['running'] ?? 0) > 0 || (int) ($state['returns'] ?? 0) > 0) {
+                respond(['error' => 'El retorno de esta movilización ya fue iniciado.'], 409);
+            }
+        } elseif ($user['role'] !== 'admin') {
             $trackingReady = $pdo->prepare(
                 'SELECT me.datos_confirmados_en, ' .
                 '(SELECT COUNT(*) FROM fotos_asistencia fa WHERE fa.movilizacion_ente_id = me.id AND fa.tipo = \'grupo\') AS group_photos ' .
@@ -1320,10 +1370,10 @@ try {
         }
         $sessionId = bin2hex(random_bytes(16));
         $statement = $pdo->prepare(
-            "INSERT INTO tracking_sesiones (movilizacion_ente_id, identificador_cliente, estado, consentimiento_version, consentimiento_aceptado_en, iniciado_en) " .
-            "VALUES (?, ?, 'en_curso', 'route-tracking-v1', NOW(), NOW())"
+            "INSERT INTO tracking_sesiones (movilizacion_ente_id, tipo, identificador_cliente, estado, consentimiento_version, consentimiento_aceptado_en, iniciado_en) " .
+            "VALUES (?, ?, ?, 'en_curso', 'route-tracking-v1', NOW(), NOW())"
         );
-        $statement->execute([$assignmentId, $sessionId]);
+        $statement->execute([$assignmentId, $leg, $sessionId]);
         respond(['id' => (int) $pdo->lastInsertId(), 'clientId' => $sessionId]);
     }
 
@@ -1400,7 +1450,7 @@ try {
             respond(['error' => 'Confirma tu llegada desde el portal para finalizar el seguimiento.'], 422);
         }
         $sessionStatement = $pdo->prepare(
-            'SELECT me.id AS assignment_id FROM tracking_sesiones ts ' .
+            'SELECT me.id AS assignment_id, ts.tipo FROM tracking_sesiones ts ' .
             'JOIN movilizacion_entes me ON me.id = ts.movilizacion_ente_id ' .
             'WHERE ts.id = ? AND ts.estado = \'en_curso\''
         );
@@ -1417,7 +1467,9 @@ try {
         if ($statement->rowCount() !== 1) {
             respond(['error' => 'No fue posible detener esta sesión; puede que ya esté finalizada o no te pertenezca.'], 409);
         }
-        respond(['message' => 'Llegada confirmada y tracking finalizado.']);
+        respond(['message' => ($trackingSession['tipo'] ?? 'ida') === 'retorno'
+            ? 'Regreso confirmado y tracking finalizado.'
+            : 'Llegada confirmada y tracking finalizado.']);
     }
 
     respond(['error' => 'La acción solicitada no existe.'], 404);

@@ -181,6 +181,7 @@ CREATE TABLE IF NOT EXISTS movilizacion_entes (
 CREATE TABLE IF NOT EXISTS tracking_sesiones (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   movilizacion_ente_id BIGINT UNSIGNED NOT NULL,
+  tipo ENUM('ida', 'retorno') NOT NULL DEFAULT 'ida',
   identificador_cliente CHAR(36) NOT NULL,
   estado ENUM('en_curso', 'finalizada', 'interrumpida') NOT NULL DEFAULT 'en_curso',
   consentimiento_version VARCHAR(32) NOT NULL,

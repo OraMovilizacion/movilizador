@@ -204,6 +204,9 @@ input:focus, select:focus, textarea:focus { border-color: var(--signal) !importa
 .tracking-legend i { width: 10px; height: 10px; border-radius: 50%; }
 .legend-live { background: var(--live); box-shadow: 0 0 0 4px var(--live-soft); }
 .legend-estimated { border: 2px dashed #d58a1f; background: var(--warn-soft); }
+.legend-walked, .legend-return { width: 18px !important; height: 4px !important; border-radius: 2px !important; }
+.legend-walked { background: #0e9f62; }
+.legend-return { background: repeating-linear-gradient(90deg, #7c5cff 0 5px, transparent 5px 8px); }
 
 .tracking-map-icon { display: grid; width: 40px; height: 48px; place-items: start center; border: 0; background: transparent; }
 .tracking-destination-marker { width: 20px; height: 20px; border: 3px solid #fff; border-radius: 50%; background: var(--ink); box-shadow: 0 0 0 5px rgb(12 16 24 / 18%), 0 3px 10px rgb(12 16 24 / 40%); }
@@ -213,6 +216,7 @@ input:focus, select:focus, textarea:focus { border-color: var(--signal) !importa
 .tracking-map-pin.connected::after { position: absolute; inset: -7px; border: 2px solid rgb(14 159 98 / 40%); border-radius: 50%; content: ""; animation: tracking-pulse 1.8s ease-out infinite; }
 .tracking-map-pin.connected.selected { background: var(--ink); }
 .tracking-map-pin.arrived { background: #1f7a4d; }
+.tracking-map-pin.returned { background: #6a4ff0; }
 .tracking-map-pin.stale { background: #6b7587; }
 .tracking-map-pin.estimated { border-style: dashed; background: #fff4dc; color: #9a5a0c; }
 .tracking-map-pin.waiting { background: #6b7587; }
@@ -256,6 +260,7 @@ input:focus, select:focus, textarea:focus { border-color: var(--signal) !importa
 .tracking-rider-pin.connected { background: var(--live); box-shadow: 0 0 0 1px var(--live), 0 0 0 5px var(--live-soft); }
 .tracking-rider-pin.arrived { background: #1f7a4d; box-shadow: 0 0 0 1px #1f7a4d, 0 0 0 5px var(--live-soft); }
 .tracking-rider-pin.estimated { border: 1px dashed #b4690f; background: var(--warn-soft); box-shadow: 0 0 0 3px var(--warn-line); }
+.tracking-rider-pin.returned { background: #6a4ff0; box-shadow: 0 0 0 1px #6a4ff0, 0 0 0 5px rgb(106 79 240 / 16%); }
 .tracking-rider-pin.waiting { background: #7b8497; box-shadow: 0 0 0 1px #7b8497; }
 .tracking-rider-copy { display: grid; min-width: 0; flex: 1; gap: 2px; }
 .tracking-rider-copy strong { overflow: hidden; font-size: 14px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }

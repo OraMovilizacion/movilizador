@@ -54,6 +54,10 @@ let trackingRouteRequestId = 0;
 let trackingRoutedCoordinateKey = "";
 let trackingRouteStatus = null;
 let trackingMapEventId = "";
+let trackingWalkedKey = "";
+let trackingWalkedLayers = [];
+let trackingWalkedPoints = [];
+let trackingWalkedRequestId = 0;
 let trackingDirections = null;
 let trackingOverviewLoading = false;
 let trackingPresentationActive = false;
@@ -449,7 +453,7 @@ function reportTrackingSession(session) {
     <td>${Number(point.simulado) ? "Sí" : "No"}</td>
   </tr>`).join("");
   return `<section class="report-subsection">
-    <h4>Sesión GPS #${escapeHtml(session.id)} · ${escapeHtml(session.llegada_confirmada_en ? "Llegó" : String(session.estado || "").replaceAll("_", " "))}</h4>
+    <h4>Sesión GPS #${escapeHtml(session.id)}${session.tipo === "retorno" ? " (retorno)" : ""} · ${escapeHtml(session.llegada_confirmada_en ? (session.tipo === "retorno" ? "Regresó" : "Llegó") : String(session.estado || "").replaceAll("_", " "))}</h4>
     <div class="report-fields">
       ${reportField("Inicio", reportDateTime(session.iniciado_en))}
       ${reportField("Finalización", reportDateTime(session.finalizado_en))}
@@ -647,10 +651,10 @@ function buildDetailedEventSheet({ event, assignments }) {
     const trackingSessions = Array.isArray(assignment.trackingSessions) ? assignment.trackingSessions : [];
     const trackingSummary = trackingSessions.length
       ? `<div class="sheet-tracking-list">${trackingSessions.map(session => `<div class="sheet-tracking-row">
-          <strong>${escapeHtml(session.llegada_confirmada_en ? "Llegó" : statusLabels[session.estado] || "Seguimiento registrado")}</strong>
+          <strong>${escapeHtml(`${session.tipo === "retorno" ? "Retorno · " : ""}${session.llegada_confirmada_en ? (session.tipo === "retorno" ? "Regresó" : "Llegó") : statusLabels[session.estado] || "Seguimiento registrado"}`)}</strong>
           <span>Inicio: ${escapeHtml(reportDateTime(session.iniciado_en))}</span>
           <span>Finalización: ${escapeHtml(reportDateTime(session.finalizado_en))}</span>
-          <span>Llegada confirmada: ${escapeHtml(reportDateTime(session.llegada_confirmada_en))}</span>
+          <span>${session.tipo === "retorno" ? "Regreso confirmado" : "Llegada confirmada"}: ${escapeHtml(reportDateTime(session.llegada_confirmada_en))}</span>
         </div>`).join("")}</div>`
       : '<p class="sheet-muted">No se informó el inicio del seguimiento del recorrido.</p>';
     const transportAnswer = assignment.requiere_transporte === null || assignment.requiere_transporte === undefined
@@ -1054,6 +1058,7 @@ function distanceBetweenCoordinates(first, second) {
 }
 
 function estimateTrackingPosition(mobilizer, now = Date.now()) {
+  if (mobilizer.tracking_leg === "retorno") return null;
   const route = parseTrackingRoute(mobilizer.ruta_personal_geojson);
   const startedAt = Number(mobilizer.tracking_started_at_epoch);
   const durationSeconds = Number(mobilizer.ruta_personal_duracion_segundos);
@@ -1091,8 +1096,11 @@ function estimateTrackingPosition(mobilizer, now = Date.now()) {
 function trackingDisplayPosition(mobilizer, now = Date.now()) {
   const actual = trackingPoint(mobilizer);
   const arrived = Boolean(mobilizer.llegada_confirmada_en);
+  const returning = mobilizer.tracking_leg === "retorno";
   if (arrived) {
     return {
+      returning,
+      returned: returning,
       actual,
       estimated: null,
       expected: null,
@@ -1106,10 +1114,11 @@ function trackingDisplayPosition(mobilizer, now = Date.now()) {
   const fresh = trackingSignalIsFresh(mobilizer);
   const expected = estimateTrackingPosition(mobilizer, now);
   const deviation = actual && expected ? distanceBetweenCoordinates(actual, expected) : null;
-  const estimated = expected && (!actual || !fresh || (deviation !== null && deviation > 500))
-    ? expected
-    : null;
+  // El punto estimado solo se muestra mientras no se haya recibido ninguna señal real.
+  const estimated = expected && !actual ? expected : null;
   return {
+    returning,
+    returned: false,
     actual,
     estimated,
     expected,
@@ -1194,10 +1203,12 @@ function renderTrackingOverview() {
     ? riders.map(mobilizer => {
       const position = trackingDisplayPosition(mobilizer);
       const selected = String(mobilizer.assignment_id) === selectedTrackingAssignmentId;
-      const seen = position.fresh && mobilizer.last_seen_at
-        ? `Señal recibida · ${formatLastSeen(mobilizer.last_seen_at)}${position.deviation > 500 ? " · fuera del estimado" : ""}`
-        : position.arrived
-          ? `Llegada confirmada · ${formatLastSeen(mobilizer.llegada_confirmada_en)}`
+      const seen = position.arrived
+        ? `${position.returned ? "Regreso confirmado" : "Llegada confirmada"} · ${formatLastSeen(mobilizer.llegada_confirmada_en)}`
+        : position.fresh && mobilizer.last_seen_at
+        ? `${position.returning ? "En retorno · " : ""}Señal recibida · ${formatLastSeen(mobilizer.last_seen_at)}`
+        : position.actual
+          ? `Última señal ${formatAge(position.ageSeconds)}`
         : position.estimated
           ? `Avance estimado · última señal ${Number.isFinite(position.ageSeconds) ? formatAge(position.ageSeconds) : "pendiente"}`
           : "Esperando GPS y ruta estimada";
@@ -1219,6 +1230,7 @@ function renderTrackingOverview() {
     removeMapLine(trackingOverviewMap, "tracking-overview-route");
     trackingDirections?.clear();
     trackingOverviewRoute = null;
+    clearWalkedRoute();
     document.getElementById("tracking-rider-detail").innerHTML =
       '<div class="empty-state">Selecciona un punto del mapa o un movilizador para ver su ruta y registro.</div>';
     return;
@@ -1233,8 +1245,10 @@ function renderTrackingOverview() {
     trackingOverviewRoute = null;
     trackingDirections?.clear();
     renderTrackingMobilizerDetail(selectedMobilizer, event);
+    void drawWalkedRoute(selectedMobilizer);
     return;
   }
+  clearWalkedRoute();
   renderTrackingMobilizerDetail(selectedMobilizer, event);
   const displayPosition = trackingDisplayPosition(selectedMobilizer);
   if (!displayPosition.fresh && displayPosition.estimated) {
@@ -1315,7 +1329,49 @@ function formatLastSeen(epoch) {
     .format(new Date(timestamp));
 }
 
+function clearWalkedRoute() {
+  trackingWalkedLayers.forEach(layerId => removeMapLine(trackingOverviewMap, layerId));
+  trackingWalkedLayers = [];
+  trackingWalkedPoints = [];
+  trackingWalkedKey = "";
+  trackingWalkedRequestId += 1;
+}
+
+// Dibuja sobre el mapa toda la ruta GPS que recorrió el movilizador (ida y retorno).
+async function drawWalkedRoute(mobilizer) {
+  const key = `${mobilizer.assignment_id}:${mobilizer.tracking_leg || "ida"}:${mobilizer.llegada_confirmada_en}`;
+  if (key === trackingWalkedKey) return;
+  clearWalkedRoute();
+  trackingWalkedKey = key;
+  const requestId = trackingWalkedRequestId;
+  try {
+    const result = await request("tracking-route", { query: { assignmentId: mobilizer.assignment_id } });
+    if (requestId !== trackingWalkedRequestId || !trackingOverviewMap) return;
+    const allPoints = [];
+    result.legs.forEach((leg, index) => {
+      if (!Array.isArray(leg.points) || leg.points.length < 2) return;
+      const layerId = `tracking-walked-${index}`;
+      const returning = leg.type === "retorno";
+      setMapLine(trackingOverviewMap, layerId, leg.points, {
+        color: returning ? "#7c5cff" : "#0e9f62",
+        weight: 5,
+        opacity: 1,
+        dashArray: returning
+      });
+      trackingWalkedLayers.push(layerId);
+      allPoints.push(...leg.points);
+    });
+    trackingWalkedPoints = allPoints;
+    if (allPoints.length) fitMapToPoints(trackingOverviewMap, allPoints, 45, 16);
+    else showNotice("Este movilizador no tiene puntos GPS guardados para dibujar su ruta.", false);
+  } catch (error) {
+    if (requestId === trackingWalkedRequestId) trackingWalkedKey = "";
+    console.error("No se pudo cargar la ruta recorrida:", error);
+  }
+}
+
 function clearTrackingOverviewMap() {
+  clearWalkedRoute();
   trackingOverviewMarkers.forEach(marker => {
     marker.trackingPopup?.remove();
     marker.remove();
@@ -1349,10 +1405,14 @@ function updateTrackingOverviewMap(event, mobilizers) {
         position.actual,
         mobilizer,
         event,
-        position.arrived ? "arrived" : position.fresh ? "connected" : "stale",
-        position.arrived
+        position.returned ? "returned" : position.arrived ? "arrived" : position.fresh ? "connected" : "stale",
+        position.returned
+          ? `Regreso confirmado · ${formatLastSeen(mobilizer.llegada_confirmada_en)}`
+          : position.arrived
           ? `Llegada confirmada · ${formatLastSeen(mobilizer.llegada_confirmada_en)}`
-          : position.fresh ? "Señal GPS recibida" : `Última señal · ${formatAge(position.ageSeconds)}`,
+          : position.fresh
+            ? position.returning ? "En retorno · señal GPS recibida" : "Señal GPS recibida"
+            : `Última señal · ${formatAge(position.ageSeconds)}`,
         position.ageSeconds
       );
     }
@@ -1420,17 +1480,11 @@ function eventDestination(event) {
 
 function trackingMarkerPopup(mobilizer, event, signalLabel, ageSeconds) {
   const lastSignal = mobilizer.llegada_confirmada_en
-    ? `Llegada confirmada · ${escapeHtml(formatLastSeen(mobilizer.llegada_confirmada_en))}`
+    ? `${mobilizer.tracking_leg === "retorno" ? "Regreso confirmado" : "Llegada confirmada"} · ${escapeHtml(formatLastSeen(mobilizer.llegada_confirmada_en))}`
     : Number.isFinite(ageSeconds)
     ? `${escapeHtml(formatAge(ageSeconds))} · ${escapeHtml(formatLastSeen(mobilizer.last_seen_at))}`
     : "Aún no se recibió GPS";
-  const expected = estimateTrackingPosition(mobilizer);
-  const expectedDistance = expected && trackingPoint(mobilizer)
-    ? distanceBetweenCoordinates(expected, trackingPoint(mobilizer))
-    : null;
-  const expectedLabel = !mobilizer.llegada_confirmada_en && expectedDistance !== null
-    ? `<div class="tracking-popup-estimate">Estimación: ${expectedDistance >= 1000 ? `${(expectedDistance / 1000).toFixed(1)} km` : `${Math.round(expectedDistance)} m`} de diferencia</div>`
-    : "";
+  const expectedLabel = "";
   return `<div class="tracking-popup">
     <span class="tracking-popup-status">${escapeHtml(signalLabel)}</span>
     <strong>${escapeHtml(mobilizer.responsable)}</strong>
@@ -1446,7 +1500,7 @@ function trackingMarkerPopup(mobilizer, event, signalLabel, ageSeconds) {
 function updateTrackingMarker(markerKey, point, mobilizer, event, state, signalLabel, ageSeconds) {
   const selected = String(mobilizer.assignment_id) === selectedTrackingAssignmentId;
   const markerState = state === "connected" && selected ? "connected selected" : state;
-  const iconHtml = `<span class="tracking-map-pin ${state === "arrived" ? "arrived" : markerState}" aria-hidden="true"><span>${state === "arrived" ? "✓" : state === "estimated" ? "≈" : "●"}</span></span>`;
+  const iconHtml = `<span class="tracking-map-pin ${state === "arrived" || state === "returned" ? state : markerState}" aria-hidden="true"><span>${state === "arrived" ? "✓" : state === "returned" ? "⌂" : state === "estimated" ? "≈" : "●"}</span></span>`;
   const coordinates = [point.longitude, point.latitude];
   let marker = trackingOverviewMarkers.get(markerKey);
   if (!marker) {
@@ -1509,7 +1563,9 @@ function selectTrackingMobilizer(assignmentId) {
   trackingOverviewRoute = null;
   renderTrackingOverview();
   const point = trackingDisplayPosition(mobilizer).primary;
-  if (point && !trackingOverviewRoute) {
+  if (trackingWalkedKey) {
+    if (trackingWalkedPoints.length) fitMapToPoints(trackingOverviewMap, trackingWalkedPoints, 45, 16);
+  } else if (point && !trackingOverviewRoute) {
     trackingOverviewMap?.jumpTo({ center: [point.longitude, point.latitude], zoom: 13 });
   }
 }
@@ -1563,18 +1619,17 @@ function renderTrackingMobilizerDetail(mobilizer, event) {
     ? ` ±${Math.round(Number(mobilizer.accuracy))} m`
     : "";
   const signalDescription = position.arrived
-    ? `Llegada confirmada · ${formatLastSeen(mobilizer.llegada_confirmada_en)}`
+    ? `${position.returned ? "Regreso confirmado" : "Llegada confirmada"} · ${formatLastSeen(mobilizer.llegada_confirmada_en)}`
     : position.fresh
-    ? `Señal recibida${position.deviation > 500 ? " · diferente del estimado" : ""}`
-    : position.actual && position.estimated
+    ? "Señal recibida"
+    : position.actual
       ? `Sin señal · última ubicación ${formatAge(position.ageSeconds)}`
       : position.estimated
         ? "Sin GPS recibido · avance proyectado"
         : "Esperando GPS";
-  const estimateDistance = position.actual && position.expected ? position.deviation : null;
   document.getElementById("tracking-rider-detail").innerHTML = `
     <article class="tracking-info-card">
-      <header><div><p class="eyebrow">FICHA DEL MOVILIZADOR</p><h3>${escapeHtml(mobilizer.responsable)}</h3></div><span class="tracking-live-badge${position.arrived ? " arrived" : ""}">${position.arrived ? "Llegó" : "En ruta"}</span></header>
+      <header><div><p class="eyebrow">Ficha del movilizador</p><h3>${escapeHtml(mobilizer.responsable)}</h3></div><span class="tracking-live-badge${position.arrived ? " arrived" : ""}">${position.returned ? "Regresó" : position.arrived ? "Llegó" : position.returning ? "En retorno" : "En ruta"}</span></header>
       <div class="tracking-info-grid">
         <div><small>Personas</small><strong>${escapeHtml(personSummary)}</strong></div>
         <div><small>Salida registrada</small><strong>${escapeHtml(mobilizer.punto_salida || "No indicada")}</strong></div>
@@ -1582,7 +1637,6 @@ function renderTrackingMobilizerDetail(mobilizer, event) {
         <div><small>Evidencias</small><strong>${Number(mobilizer.photo_count) || 0} foto(s): lista ${Number(mobilizer.list_photo_count) || 0} · vehículo ${Number(mobilizer.vehicle_photo_count) || 0} · grupo ${Number(mobilizer.group_photo_count) || 0}</strong></div>
         <div><small>Estado de señal</small><strong>${escapeHtml(signalDescription)}</strong></div>
         <div><small>Último GPS real</small><strong>${escapeHtml(mobilizer.last_seen_at ? formatLastSeen(mobilizer.last_seen_at) : "Esperando GPS")}${escapeHtml(accuracy)}</strong></div>
-        ${estimateDistance !== null ? `<div class="tracking-info-wide tracking-estimate-note"><small>Comparación con el estimado actual</small><strong>La última señal real está a ${estimateDistance >= 1000 ? `${(estimateDistance / 1000).toFixed(1)} km` : `${Math.round(estimateDistance)} m`} del punto proyectado.</strong></div>` : ""}
       </div>
       <div class="tracking-route-estimate${routeStatusClass}"><small>Destino: ${escapeHtml(destinationLabel)}</small><strong>${escapeHtml(routeMessage)}</strong>${trackingRouteStatus?.arrival ? `<span>${position.arrived ? "Llegó:" : "Llegada estimada:"} ${escapeHtml(trackingRouteStatus.arrival)}</span>` : ""}</div>
     </article>`;
@@ -2259,9 +2313,16 @@ function renderMobilizerAssignment(assignment, event) {
   const stage = currentWorkflowStage(assignment);
   const assignmentSessions = assignment.trackingSessions || [];
   const activeServerSession = assignmentSessions.find(session => session.estado === "en_curso");
-  const arrivedSession = assignmentSessions.some(session => session.estado === "en_curso")
+  const arrivedSession = activeServerSession
     ? null
-    : assignmentSessions.find(session => session.llegada_confirmada_en);
+    : assignmentSessions.find(session => session.tipo !== "retorno" && session.llegada_confirmada_en);
+  const returnSessions = assignmentSessions.filter(session => session.tipo === "retorno");
+  const returnedSession = activeServerSession
+    ? null
+    : returnSessions.find(session => session.llegada_confirmada_en);
+  const canStartReturn = Boolean(arrivedSession && !returnSessions.length);
+  const activeLeg = activeServerSession?.tipo === "retorno" ? "retorno" : "ida";
+  const tripFinished = Boolean(returnedSession || (arrivedSession && !canStartReturn));
   const recoveryPending = Boolean(activeServerSession &&
     (!activeTracking || activeTracking.assignmentId !== assignmentId));
   const vehicles = getAssignmentVehicles(assignment);
@@ -2372,10 +2433,10 @@ function renderMobilizerAssignment(assignment, event) {
       </header>
       <div class="map-frame workflow-tracking-map trip-map" id="tracking-map-${assignmentId}" aria-label="Mapa y ruta estimada del viaje"></div>
       <div class="trip-tracking-dock">
-        <label><input type="checkbox" data-tracking-consent="${assignmentId}" ${arrivedSession || activeServerSession ? "disabled" : ""}><span>Autorizo registrar mi ubicación durante el viaje.</span></label>
-        <div class="tracking-live" data-tracking-state="${assignmentId}" role="status">${arrivedSession ? `Llegada confirmada · ${escapeHtml(formatLastSeen(arrivedSession.llegada_confirmada_en))}` : activeServerSession ? "Sesión activa. Recuperando el GPS…" : "Viaje listo para iniciar."}</div>
+        <label><input type="checkbox" data-tracking-consent="${assignmentId}" ${arrivedSession || activeServerSession || returnedSession ? "checked disabled" : ""}><span>Autorizo registrar mi ubicación durante el viaje.</span></label>
+        <div class="tracking-live" data-tracking-state="${assignmentId}" role="status">${returnedSession ? `Retorno completado · ${escapeHtml(formatLastSeen(returnedSession.llegada_confirmada_en))}` : arrivedSession ? `Llegada confirmada · ${escapeHtml(formatLastSeen(arrivedSession.llegada_confirmada_en))}${canStartReturn ? ". Cuando salgas de regreso, pulsa «Iniciar retorno»." : ""}` : activeServerSession ? `${activeLeg === "retorno" ? "Retorno activo" : "Sesión activa"}. Recuperando el GPS…` : "Viaje listo para iniciar."}</div>
         <div class="trip-tracking-help">El navegador puede pausar el GPS al suspender o cerrar la página. La sesión se conserva y el envío se reanuda al volver a abrir esta movilización.</div>
-        <div class="tracking-panel-actions"><button class="button primary trip-start-button" type="button" data-tracking-start="${assignmentId}" ${arrivedSession ? "hidden" : ""} ${recoveryPending ? "disabled" : ""}>${recoveryPending ? "Recuperando viaje…" : "Inicio de viaje"}</button><button class="button secondary trip-start-button" type="button" data-tracking-stop="${assignmentId}" hidden>Confirmar llegada</button></div>
+        <div class="tracking-panel-actions"><button class="button primary trip-start-button" type="button" data-tracking-start="${assignmentId}" data-tracking-leg="${canStartReturn ? "retorno" : "ida"}" ${tripFinished ? "hidden" : ""} ${recoveryPending ? "disabled" : ""}>${recoveryPending ? "Recuperando viaje…" : canStartReturn ? "Iniciar retorno" : "Inicio de viaje"}</button><button class="button secondary trip-start-button" type="button" data-tracking-stop="${assignmentId}" hidden>${activeLeg === "retorno" ? "Confirmar regreso" : "Confirmar llegada"}</button></div>
       </div>
     </section>`;
   }
@@ -2436,6 +2497,15 @@ function initializeMobilizerTrackingMap(assignment) {
     }
   });
   workflowTrackingMaps.set(assignmentId, { map, routeLayer: null });
+  (assignment.trackingSessions || []).filter(session => session.estado !== "en_curso").forEach(session => {
+    const walked = (session.points || [])
+      .map(point => [Number(point.longitud), Number(point.latitud)])
+      .filter(point => Number.isFinite(point[0]) && Number.isFinite(point[1]));
+    setMapLine(map, `walked-${session.id}`, walked, {
+      color: session.tipo === "retorno" ? "#7c5cff" : "#0e9f62",
+      weight: 4
+    });
+  });
   if (activeTracking?.assignmentId === assignmentId && activeTracking.points.length > 1) {
     activeTracking.routeLayer = `active-tracking-route-${assignmentId}`;
     setMapLine(map, activeTracking.routeLayer, activeTracking.points.map(point => [point.longitude, point.latitude]), {
@@ -3089,9 +3159,12 @@ function updateTrackingButtons(assignmentId = activeTracking?.assignmentId) {
     startButton.disabled = tracking && (!sessionReady || Boolean(activeTracking.arrivalInProgress));
     startButton.textContent = tracking
       ? "Reanudar GPS"
-      : card.closest("#mobilizer-workflow-screen") ? "Inicio de viaje" : "Iniciar tracking";
+      : card.closest("#mobilizer-workflow-screen")
+        ? startButton.dataset.trackingLeg === "retorno" ? "Iniciar retorno" : "Inicio de viaje"
+        : "Iniciar tracking";
   }
   if (stopButton) {
+    if (tracking) stopButton.textContent = activeTracking.leg === "retorno" ? "Confirmar regreso" : "Confirmar llegada";
     stopButton.hidden = !sessionReady;
     stopButton.disabled = tracking && Boolean(activeTracking.arrivalInProgress);
   }
@@ -3245,6 +3318,7 @@ async function restoreTrackingSession(event, assignments) {
     activeTracking = {
       assignmentId: Number(assignment.id),
       eventId: String(event.id),
+      leg: serverSession.tipo === "retorno" ? "retorno" : "ida",
       watchId: null,
       serverSessionId: Number(serverSession.id),
       localId: localSession?.id || crypto.randomUUID(),
@@ -3281,7 +3355,7 @@ async function restoreTrackingSession(event, assignments) {
   }
 }
 
-async function startTracking(assignmentId) {
+async function startTracking(assignmentId, leg = "ida") {
   if (!window.isSecureContext || !navigator.geolocation) {
     showTrackingNotice("Para registrar la ubicación, abre este portal con HTTPS y permite la geolocalización.", true, assignmentId);
     return;
@@ -3300,7 +3374,9 @@ async function startTracking(assignmentId) {
   }
   const card = document.querySelector(`[data-tracking-state="${assignmentId}"]`)?.closest(".assignment-card");
   const checkbox = card?.querySelector(`[data-tracking-consent="${assignmentId}"]`);
-  if (!checkbox?.checked) {
+  if (leg === "retorno") {
+    if (!window.confirm("¿Iniciar el retorno al punto de salida? Se registrará tu ubicación hasta que confirmes tu regreso.")) return;
+  } else if (!checkbox?.checked) {
     showTrackingNotice("Confirma el consentimiento informado antes de registrar la ubicación.", true, assignmentId);
     return;
   }
@@ -3308,6 +3384,7 @@ async function startTracking(assignmentId) {
   activeTracking = {
     assignmentId,
     eventId: String(activeEvent.id),
+    leg,
     watchId: null,
     serverSessionId: null,
     localId: crypto.randomUUID(),
@@ -3317,11 +3394,11 @@ async function startTracking(assignmentId) {
     arrivalInProgress: false
   };
   const current = activeTracking;
-  showTrackingNotice("Iniciando sesión segura de tracking…", false);
+  showTrackingNotice(leg === "retorno" ? "Iniciando el retorno…" : "Iniciando sesión segura de tracking…", false);
   updateTrackingButtons(assignmentId);
   trackingPoints = [];
   try {
-    const result = await request("tracking-start", { method: "POST", data: { assignmentId, consentAccepted: true } });
+    const result = await request("tracking-start", { method: "POST", data: { assignmentId, consentAccepted: true, leg } });
     if (activeTracking !== current) return;
     current.serverSessionId = result.id;
     await saveLocalTrack(trackingSnapshot(current));
@@ -3340,17 +3417,20 @@ async function startTracking(assignmentId) {
 
 async function stopTracking(assignmentId) {
   if (!activeTracking || activeTracking.assignmentId !== assignmentId || activeTracking.arrivalInProgress) return;
-  if (!window.confirm("¿Confirmas que ya llegaste al destino? Se guardará tu ubicación actual como punto final y se cerrará el seguimiento.")) return;
+  const returning = activeTracking.leg === "retorno";
+  if (!window.confirm(returning
+    ? "¿Confirmas que ya regresaste al punto de salida? Se guardará tu ubicación actual como punto final y se cerrará el seguimiento."
+    : "¿Confirmas que ya llegaste al destino? Se guardará tu ubicación actual como punto final y se cerrará el seguimiento.")) return;
   const stopped = activeTracking;
   const wasWatching = Boolean(stopped.watchId);
   stopped.arrivalInProgress = true;
   if (stopped.watchId) navigator.geolocation.clearWatch(stopped.watchId);
   stopped.watchId = null;
   updateTrackingButtons();
-  showTrackingState("Obteniendo ubicación para confirmar la llegada…", false);
+  showTrackingState(returning ? "Obteniendo ubicación para confirmar el regreso…" : "Obteniendo ubicación para confirmar la llegada…", false);
   try {
     if (!window.isSecureContext || !navigator.geolocation) {
-      throw new Error("Para confirmar la llegada, abre el portal con HTTPS y permite la geolocalización.");
+      throw new Error("Para confirmar, abre el portal con HTTPS y permite la geolocalización.");
     }
     const position = await new Promise((resolve, reject) => {
       navigator.geolocation.getCurrentPosition(resolve, error => {
@@ -3383,7 +3463,7 @@ async function stopTracking(assignmentId) {
     stopped.arrivalInProgress = false;
     if (wasWatching) attachTrackingWatch(assignmentId);
     updateTrackingButtons(assignmentId);
-    showTrackingNotice(`No se confirmó la llegada; tu viaje sigue activo. ${error.message}`, true, assignmentId);
+    showTrackingNotice(`${returning ? "No se confirmó el regreso; tu retorno sigue activo." : "No se confirmó la llegada; tu viaje sigue activo."} ${error.message}`, true, assignmentId);
     console.error("No se pudo confirmar la llegada del movilizador:", error);
   }
 }
@@ -3581,7 +3661,7 @@ document.addEventListener("click", event => {
   const shareButton = event.target.closest("[data-share-event]");
   if (shareButton) void shareEvent(shareButton.dataset.shareEvent, shareButton);
   const startButton = event.target.closest("[data-tracking-start]");
-  if (startButton) startTracking(Number(startButton.dataset.trackingStart));
+  if (startButton) startTracking(Number(startButton.dataset.trackingStart), startButton.dataset.trackingLeg === "retorno" ? "retorno" : "ida");
   const stopButton = event.target.closest("[data-tracking-stop]");
   if (stopButton) void stopTracking(Number(stopButton.dataset.trackingStop));
   const copyLink = event.target.closest("#copy-event-link");
