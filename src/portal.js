@@ -1112,6 +1112,7 @@ function estimateTrackingPosition(mobilizer, now = Date.now(), anchor = null) {
   let elapsedSeconds = Math.max(0, now / 1000 - startedAt);
   let progress = Math.min(1, elapsedSeconds / durationSeconds);
   let targetDistance = totalDistance * progress;
+  let startAlong = 0;
   if (anchor?.point && Number.isFinite(anchor.ageSeconds)) {
     // Parte desde la última posición real proyectada sobre la ruta y avanza a la velocidad media prevista.
     const kLat = 111320;
@@ -1130,6 +1131,7 @@ function estimateTrackingPosition(mobilizer, now = Date.now(), anchor = null) {
       if (gap < best.gap) best = { gap, along: item.startDistance + item.segmentDistance * t };
     });
     const speed = totalDistance / durationSeconds;
+    startAlong = best.along;
     targetDistance = Math.min(totalDistance, best.along + speed * Math.max(0, anchor.ageSeconds));
     progress = targetDistance / totalDistance;
     elapsedSeconds = progress * durationSeconds;
@@ -1138,7 +1140,27 @@ function estimateTrackingPosition(mobilizer, now = Date.now(), anchor = null) {
   const segmentProgress = segment.segmentDistance > 0
     ? Math.max(0, Math.min(1, (targetDistance - segment.startDistance) / segment.segmentDistance))
     : 0;
+  const pointAt = distance => {
+    const item = segments.find(candidate => distance <= candidate.startDistance + candidate.segmentDistance) || segments[segments.length - 1];
+    const ratio = item.segmentDistance > 0
+      ? Math.max(0, Math.min(1, (distance - item.startDistance) / item.segmentDistance))
+      : 0;
+    return [
+      item.start.longitude + (item.end.longitude - item.start.longitude) * ratio,
+      item.start.latitude + (item.end.latitude - item.start.latitude) * ratio
+    ];
+  };
+  // Tramo recorrido según la estimación: desde la última posición real (o la salida) hasta el punto estimado.
+  const trail = [pointAt(startAlong)];
+  segments.forEach(item => {
+    const vertexDistance = item.startDistance + item.segmentDistance;
+    if (vertexDistance > startAlong && vertexDistance < targetDistance) {
+      trail.push([item.end.longitude, item.end.latitude]);
+    }
+  });
+  trail.push(pointAt(targetDistance));
   return {
+    trail,
     latitude: segment.start.latitude + (segment.end.latitude - segment.start.latitude) * segmentProgress,
     longitude: segment.start.longitude + (segment.end.longitude - segment.start.longitude) * segmentProgress,
     progress,
@@ -1218,7 +1240,7 @@ function renderTrackingOverview() {
     trackingRouteStatus = null;
     trackingRoutedCoordinateKey = "";
     trackingRouteRequestId += 1;
-    removeMapLine(trackingOverviewMap, "tracking-overview-route");
+    removeMapLine(trackingOverviewMap, "tracking-overview-route"); removeMapLine(trackingOverviewMap, "tracking-estimated-trail");
     trackingDirections?.clear();
     trackingOverviewRoute = null;
   }
@@ -1284,7 +1306,7 @@ function renderTrackingOverview() {
     trackingRouteStatus = null;
     trackingRoutedCoordinateKey = "";
     trackingRouteRequestId += 1;
-    removeMapLine(trackingOverviewMap, "tracking-overview-route");
+    removeMapLine(trackingOverviewMap, "tracking-overview-route"); removeMapLine(trackingOverviewMap, "tracking-estimated-trail");
     trackingDirections?.clear();
     trackingOverviewRoute = null;
     clearWalkedRoute();
@@ -1298,7 +1320,7 @@ function renderTrackingOverview() {
       message: "Llegada confirmada",
       arrival: formatLastSeen(selectedMobilizer.llegada_confirmada_en)
     };
-    removeMapLine(trackingOverviewMap, "tracking-overview-route");
+    removeMapLine(trackingOverviewMap, "tracking-overview-route"); removeMapLine(trackingOverviewMap, "tracking-estimated-trail");
     trackingOverviewRoute = null;
     trackingDirections?.clear();
     renderTrackingMobilizerDetail(selectedMobilizer, event);
@@ -1311,13 +1333,21 @@ function renderTrackingOverview() {
   if (!displayPosition.fresh && displayPosition.estimated) {
     const routeKey = `estimated:${trackingCoordinateKey(selectedMobilizer)}`;
     if (routeKey !== trackingRoutedCoordinateKey) {
+      const firstEstimate = !String(trackingRoutedCoordinateKey).startsWith("estimated:");
       trackingRoutedCoordinateKey = routeKey;
       trackingRouteStatus = {
         type: "estimated",
         message: `Avance estimado · ${formatEstimatedDuration(displayPosition.estimated.remainingSeconds)}`,
         arrival: estimatedArrival(displayPosition.estimated.remainingSeconds)
       };
-      drawPlannedTrackingRoute(selectedMobilizer);
+      drawPlannedTrackingRoute(selectedMobilizer, firstEstimate);
+      if (displayPosition.estimated.trail?.length > 1) {
+        setMapLine(trackingOverviewMap, "tracking-estimated-trail", displayPosition.estimated.trail, {
+          color: "#f59e0b",
+          weight: 6,
+          opacity: 1
+        });
+      }
     }
     renderTrackingMobilizerDetail(selectedMobilizer, event);
   } else if (displayPosition.actual && displayPosition.fresh) {
@@ -1434,7 +1464,7 @@ function clearTrackingOverviewMap() {
     marker.remove();
   });
   trackingOverviewMarkers.clear();
-  removeMapLine(trackingOverviewMap, "tracking-overview-route");
+  removeMapLine(trackingOverviewMap, "tracking-overview-route"); removeMapLine(trackingOverviewMap, "tracking-estimated-trail");
   if (trackingDestinationMarker) trackingDestinationMarker.remove();
   trackingDirections?.clear();
   trackingOverviewRoute = null;
@@ -1593,8 +1623,8 @@ function updateTrackingMarker(markerKey, point, mobilizer, event, state, signalL
   }
 }
 
-function drawPlannedTrackingRoute(mobilizer) {
-  removeMapLine(trackingOverviewMap, "tracking-overview-route");
+function drawPlannedTrackingRoute(mobilizer, fit = true) {
+  removeMapLine(trackingOverviewMap, "tracking-overview-route"); removeMapLine(trackingOverviewMap, "tracking-estimated-trail");
   trackingOverviewRoute = null;
   const coordinates = plannedRouteInfo(mobilizer).coordinates;
   if (coordinates.length < 2 || !trackingOverviewMap) return;
@@ -1605,7 +1635,7 @@ function drawPlannedTrackingRoute(mobilizer) {
     weight: 6,
     opacity: 1
   });
-  fitMapToPoints(trackingOverviewMap, coordinates, 35, 10);
+  if (fit) fitMapToPoints(trackingOverviewMap, coordinates, 35, 10);
 }
 
 function selectTrackingMobilizer(assignmentId) {
@@ -1615,7 +1645,7 @@ function selectTrackingMobilizer(assignmentId) {
   trackingRouteStatus = null;
   trackingRoutedCoordinateKey = "";
   trackingRouteRequestId += 1;
-  removeMapLine(trackingOverviewMap, "tracking-overview-route");
+  removeMapLine(trackingOverviewMap, "tracking-overview-route"); removeMapLine(trackingOverviewMap, "tracking-estimated-trail");
   trackingDirections?.clear();
   trackingOverviewRoute = null;
   renderTrackingOverview();
@@ -1632,7 +1662,7 @@ function showAllTrackingMobilizers() {
   trackingRouteStatus = null;
   trackingRoutedCoordinateKey = "";
   trackingRouteRequestId += 1;
-  removeMapLine(trackingOverviewMap, "tracking-overview-route");
+  removeMapLine(trackingOverviewMap, "tracking-overview-route"); removeMapLine(trackingOverviewMap, "tracking-estimated-trail");
   trackingDirections?.clear();
   trackingOverviewRoute = null;
   renderTrackingOverview();
@@ -1708,7 +1738,7 @@ async function calculateTrackingRoute(mobilizer, event) {
   const point = trackingDisplayPosition(mobilizer).primary;
   const destination = eventDestination(event);
   const requestId = ++trackingRouteRequestId;
-  removeMapLine(trackingOverviewMap, "tracking-overview-route");
+  removeMapLine(trackingOverviewMap, "tracking-overview-route"); removeMapLine(trackingOverviewMap, "tracking-estimated-trail");
   trackingOverviewRoute = null;
   if (!point || !destination) {
     trackingRouteStatus = { type: "error", message: "No se puede calcular: falta la posición o el destino." };
@@ -3839,6 +3869,14 @@ window.addEventListener("online", () => {
 window.setInterval(() => {
   if (activeTracking) void flushPendingPoints();
 }, 30000);
+
+window.setInterval(() => {
+  // Mueve el punto estimado entre una consulta y otra sin pedir datos al servidor.
+  if (isAdminPanel && currentPortalPage === "tracking" && !portalScreen.hidden &&
+      trackingOverviewMobilizers.some(mobilizer => trackingDisplayPosition(mobilizer).estimated)) {
+    renderTrackingOverview();
+  }
+}, 5000);
 
 window.setInterval(() => {
   if (isAdminPanel && currentPortalPage === "tracking" && !portalScreen.hidden) {

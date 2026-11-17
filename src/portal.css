@@ -218,7 +218,7 @@ input:focus, select:focus, textarea:focus { border-color: var(--signal) !importa
 .tracking-map-pin.arrived { background: #1f7a4d; }
 .tracking-map-pin.returned { background: #6a4ff0; }
 .tracking-map-pin.stale { background: #6b7587; }
-.tracking-map-pin.estimated { border-style: dashed; background: #fff4dc; color: #9a5a0c; }
+.tracking-map-pin.estimated { border-style: dashed; border-color: #fff; background: #f59e0b; color: #fff; box-shadow: 0 0 0 4px rgba(245,158,11,.28); }
 .tracking-map-pin.waiting { background: #6b7587; }
 @keyframes tracking-pulse {
   0% { opacity: .9; transform: scale(.8); }
