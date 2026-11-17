@@ -653,3 +653,14 @@ body[data-portal-mode="mobilizer"] .event-card-actions .button { min-height: 48p
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+
+/* Identificación del movilizador: nombre, estado y cierre de sesión */
+.mobilizer-bar { display: none; }
+body[data-portal-mode="mobilizer"] .mobilizer-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 18px; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--r-xl); background: var(--surface); box-shadow: var(--shadow-sm); }
+.mobilizer-id { display: flex; min-width: 0; align-items: center; gap: 12px; }
+.mobilizer-id-text { display: flex; min-width: 0; flex-direction: column; align-items: flex-start; gap: 3px; }
+.mobilizer-id-text strong, .workflow-user strong { overflow: hidden; max-width: 100%; text-overflow: ellipsis; white-space: nowrap; font-size: 15px; }
+.state-chip { display: inline-flex; align-items: center; padding: 2px 9px; border-radius: 999px; background: #e4ecff; color: #1f45b0; font-size: 12px; font-weight: 600; white-space: nowrap; }
+.workflow-user { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 0 10px; color: var(--ink); }
+.workflow-user strong { font-size: 14px; }
+@media (max-width: 560px) { body[data-portal-mode="mobilizer"] .mobilizer-bar .button { padding: 9px 12px; font-size: 13px; } }

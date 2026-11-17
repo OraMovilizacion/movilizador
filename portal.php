@@ -106,6 +106,15 @@ header("Content-Security-Policy: default-src 'self'; script-src 'self'; style-sr
 
       <section class="main-content">
         <header class="topbar"><span class="breadcrumb"><?= $adminPanel ? 'Administración' : 'Portal' ?> <span>/</span> <strong id="current-page-label"><?= $adminPanel ? 'Seguimiento' : 'Mis movilizaciones' ?></strong></span><span class="today" id="today-label"></span></header>
+        <?php if (!$adminPanel): ?>
+        <div class="mobilizer-bar" id="mobilizer-bar">
+          <span class="mobilizer-id">
+            <span class="avatar" id="bar-avatar">US</span>
+            <span class="mobilizer-id-text"><strong id="bar-name">Usuario</strong><span class="state-chip" id="bar-state">Estado</span></span>
+          </span>
+          <button class="button secondary" id="bar-logout-button" type="button">Cerrar sesión</button>
+        </div>
+        <?php endif; ?>
         <section class="page-heading">
           <div><?php if (!$adminPanel): ?><p class="eyebrow">Panel de trabajo</p><?php endif; ?><h1><span id="heading-name"><?= $adminPanel ? 'Seguimiento en vivo' : 'Movilizaciones disponibles' ?></span></h1><p class="subtle" id="heading-description"><?= $adminPanel ? 'Ubicación y avance de los movilizadores en ruta.' : 'Selecciona una movilización para completar los pasos y registrar tu viaje.' ?></p></div>
           <button class="button primary" id="new-event-button" type="button" hidden>+ Nueva movilización</button>
@@ -244,6 +253,7 @@ header("Content-Security-Policy: default-src 'self'; script-src 'self'; style-sr
         </div>
       </header>
       <section class="workflow-page-heading">
+        <p class="workflow-user"><strong id="workflow-user-name">Usuario</strong><span class="state-chip" id="workflow-user-state">Estado</span></p>
         <p class="eyebrow">Registro de movilización</p>
         <h1 id="workflow-event-title"></h1>
         <p class="subtle" id="workflow-event-meta"></p>

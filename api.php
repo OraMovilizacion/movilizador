@@ -82,6 +82,12 @@ function public_user(PDO $pdo, array $account): array
         $statement->execute([$roleId]);
         $modules = $statement->fetchAll(PDO::FETCH_COLUMN);
     }
+    $territoryName = null;
+    if ($account['unidad_territorial_id'] !== null) {
+        $territoryStatement = $pdo->prepare('SELECT nombre FROM unidades_territoriales WHERE id = ?');
+        $territoryStatement->execute([(int) $account['unidad_territorial_id']]);
+        $territoryName = $territoryStatement->fetchColumn() ?: null;
+    }
     return [
         'id' => (int) $account['id'],
         'name' => $account['nombre'],
@@ -92,7 +98,8 @@ function public_user(PDO $pdo, array $account): array
         'roleName' => $isSuperadmin ? 'Superadministrador' : ($account['rol_sistema_nombre'] ?? 'Responsable'),
         'superadmin' => $isSuperadmin,
         'modules' => $modules,
-        'territoryId' => $account['unidad_territorial_id'] === null ? null : (int) $account['unidad_territorial_id']
+        'territoryId' => $account['unidad_territorial_id'] === null ? null : (int) $account['unidad_territorial_id'],
+        'territoryName' => $territoryName
     ];
 }
 
