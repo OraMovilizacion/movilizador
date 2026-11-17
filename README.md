@@ -45,6 +45,14 @@ Portal web para coordinación y movilizadores. Incluye inicio de sesión con ses
 
 8. Abre `http://localhost/movilizacion/` para entrar al **panel administrativo**. El portal de movilizadores está en `http://localhost/movilizacion/portal.php`. En teléfonos y en cualquier acceso fuera del equipo servidor, utiliza el dominio HTTPS real.
 
+## Despliegue en un servidor Apache
+
+`config.local.php` no se incluye en Git para evitar publicar credenciales. En el servidor puedes crear ese archivo junto a `db.php` con los datos propios del servidor y permisos de lectura para el usuario de PHP, o guardar el archivo fuera del directorio público y configurar `MOV_CONFIG_FILE` con su ruta absoluta. El archivo debe devolver el mismo arreglo que `config.example.php`; no uses las credenciales locales de XAMPP salvo que correspondan también a la base del servidor.
+
+Como alternativa, configura las variables `MOV_DB_HOST`, `MOV_DB_PORT`, `MOV_DB_NAME`, `MOV_DB_USER`, `MOV_DB_PASSWORD` y `MOV_APP_SECRET` en el entorno del proceso PHP. Con Apache y `mod_php` pueden definirse dentro del VirtualHost con directivas `SetEnv`; con PHP-FPM deben configurarse en el pool de FPM y permitirse en su entorno. `MOV_APP_SECRET` debe ser aleatorio y tener al menos 32 caracteres. No guardes estas variables en archivos públicos ni en el repositorio.
+
+Después de configurar el acceso, importa `schema.sql` o aplica solo las migraciones pendientes, compila los recursos con `npm install` y `npm run build`, y ejecuta los seeders necesarios. Comprueba el endpoint `api.php?action=session` y confirma que responde HTTP 200 antes de iniciar sesión.
+
 ## Estructura territorial
 
 - En el panel administrativo, coordinación abre **Estructura** para asignar el movilizador nacional, los 24 estadales y los 335 municipales. Una unidad solo puede tener una cuenta responsable.

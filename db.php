@@ -3,10 +3,13 @@ declare(strict_types=1);
 
 function load_config(): array
 {
-    $localConfig = __DIR__ . '/config.local.php';
-    $config = is_file($localConfig) ? require $localConfig : [];
+    $externalConfig = getenv('MOV_CONFIG_FILE');
+    $configPath = $externalConfig !== false && $externalConfig !== ''
+        ? $externalConfig
+        : __DIR__ . '/config.local.php';
+    $config = is_file($configPath) ? require $configPath : [];
     if (!is_array($config)) {
-        throw new RuntimeException('La configuración local debe devolver un arreglo.');
+        throw new RuntimeException('El archivo de configuración debe devolver un arreglo.');
     }
 
     foreach ([
