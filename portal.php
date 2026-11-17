@@ -25,6 +25,13 @@ foreach (['assetScript' => 'js', 'assetStyle' => 'css'] as $variable => $extensi
         }
     }
 }
+// Los archivos con nombre fijo (dist/assets/portal.js y portal.css) tienen prioridad: así un manifest
+// viejo o archivos con hash antiguos que sigan en el servidor nunca hacen cargar una versión anterior.
+foreach (['assetScript' => 'portal.js', 'assetStyle' => 'portal.css'] as $variable => $fixedName) {
+    if (is_file(__DIR__ . '/dist/assets/' . $fixedName)) {
+        $$variable = 'dist/assets/' . $fixedName;
+    }
+}
 // Versión por fecha de modificación para que el navegador no use una copia en caché.
 foreach (['assetScript', 'assetStyle'] as $variable) {
     if ($$variable !== null) {
