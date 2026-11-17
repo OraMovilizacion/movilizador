@@ -270,7 +270,7 @@ function showPortal() {
   document.getElementById("user-role").textContent = isAdminPanel
     ? user.superadmin ? "Superadministrador" : user.roleName || "Administración"
     : "Responsable";
-  document.getElementById("heading-name").textContent = isAdminPanel ? "Seguimiento en vivo" : "disponibles";
+  document.getElementById("heading-name").textContent = isAdminPanel ? "Seguimiento en vivo" : "Movilizaciones disponibles";
   document.getElementById("heading-description").textContent = isAdminPanel
     ? "Ubicación y avance de los movilizadores en ruta."
     : "Selecciona una movilización para completar los pasos y registrar tu viaje.";
@@ -324,7 +324,7 @@ function showPage(page) {
   });
   const pageLabels = {
     tracking: ["Seguimiento en vivo", "Ubicación y avance de los movilizadores en ruta."],
-    events: [isAdminPanel ? "Movilizaciones" : "disponibles", isAdminPanel ? "Crea y administra las actividades de movilización." : "Selecciona una movilización para completar los pasos y registrar tu viaje."],
+    events: [isAdminPanel ? "Movilizaciones" : "Movilizaciones disponibles", isAdminPanel ? "Crea y administra las actividades de movilización." : "Selecciona una movilización para completar los pasos y registrar tu viaje."],
     structure: ["Estructura", "Gestiona las cuentas y unidades de movilización."],
     reports: ["Reportes de movilización", "Elige una actividad para generar su presentación resumida."],
     settings: ["Configuración", "Administra usuarios administrativos y permisos por módulo."]
@@ -1671,7 +1671,7 @@ function renderEvents() {
   document.getElementById("events-list").innerHTML = visible.map(event => `
     <article class="event-card">
       <div class="event-card-top"><div><h3>${escapeHtml(event.nombre)}</h3><p class="event-location">${escapeHtml(event.municipio ? `${event.municipio}, ${event.estado_nombre}` : event.lugar)}</p></div><span class="status">${escapeHtml(event.estado.replace("_", " "))}</span></div>
-      <div class="event-card-meta"><span>▣ ${escapeHtml(eventDate(event.fecha))}${event.hora_inicio ? ` · ${escapeHtml(String(event.hora_inicio).slice(0, 5))}` : ""}</span>${isAdminPanel ? `<span>♧ ${Number(event.cantidad_entes) || 0} registros</span>` : ""}<span>↗ ${escapeHtml(routeSummary(event))}</span></div>
+      <div class="event-card-meta"><span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="17" rx="3"/><path d="M8 2v4M16 2v4M3 10h18"/></svg> ${escapeHtml(eventDate(event.fecha))}${event.hora_inicio ? ` · ${escapeHtml(String(event.hora_inicio).slice(0, 5))}` : ""}</span>${isAdminPanel ? `<span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3.2"/><path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6M16 5a3 3 0 0 1 0 6M18 14c2 .7 3 2.6 3 5"/></svg> ${Number(event.cantidad_entes) || 0} registros</span>` : ""}<span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="6" r="2.5"/><path d="M8.5 18H14a3 3 0 0 0 0-6h-4a3 3 0 0 1 0-6h5.5"/></svg> ${escapeHtml(routeSummary(event))}</span></div>
       <div class="event-card-actions">${isAdminPanel ? `<button class="button secondary" type="button" data-share-event="${Number(event.id)}">Compartir</button>` : ""}<button class="button primary" type="button" data-open-event="${Number(event.id)}">${isAdminPanel ? "Abrir actividad →" : "Completar pasos →"}</button>${isAdminPanel ? `<button class="button danger" type="button" data-delete-event="${Number(event.id)}" data-event-name="${escapeHtml(event.nombre)}">Eliminar</button>` : ""}</div>
     </article>`).join("");
   document.getElementById("events-empty").hidden = visible.length > 0;
@@ -1751,7 +1751,7 @@ function renderStructureTree() {
   ).join("");
   const national = territories.find(unit => unit.nivel === "nacional");
   tree.innerHTML = `${national ? `<div class="structure-row structure-national"><span><strong>${escapeHtml(national.nombre)} · Nacional</strong>${userLabel(national)}</span>${editButton(national)}</div>` : ""}
-    <h3>Estados y municipios</h3>${stateRows}`;
+    <h3>Estados y municipios</h3>${stateRows || '<div class="empty-state">Esta base de datos aún no tiene estados ni municipios cargados. Ejecuta <code>php scripts/seed_territories.php</code> en la carpeta del proyecto del servidor y vuelve a cargar esta sección.</div>'}`;
 }
 
 function structureMobilizerName(unit) {

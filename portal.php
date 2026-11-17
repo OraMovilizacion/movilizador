@@ -23,7 +23,7 @@ header("Content-Security-Policy: default-src 'self'; script-src 'self'; style-sr
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#f3f9fc">
+  <meta name="theme-color" content="#0c1018">
   <title><?= $adminPanel ? 'Panel administrativo ORA' : 'Portal de movilización ORA' ?></title>
   <?php if ($assetStyle !== null): ?>
     <link rel="stylesheet" href="<?= $assetStyle ?>">
@@ -40,16 +40,18 @@ header("Content-Security-Policy: default-src 'self'; script-src 'self'; style-sr
     </main>
   <?php else: ?>
     <main id="login-screen" class="login-layout" hidden>
-      <section class="login-panel">
-        <img class="ora-logo login-logo" src="assets/img/ora-logo.png" alt="ORA — Organización Renovadora Auténtica">
+            <section class="login-panel">
+        <img class="ora-logo login-logo" src="assets/img/ora-logo-transparent.png" alt="ORA — Organización Renovadora Auténtica">
         <section class="login-card">
+          <h1>Iniciar sesión</h1>
+          <p class="login-lead"><?= $adminPanel ? 'Entra con tu usuario del panel administrativo.' : 'Entra con tu número de teléfono.' ?></p>
           <form id="login-form" aria-label="<?= $adminPanel ? 'Acceso administrativo' : 'Acceso de movilizadores' ?>">
             <label for="login-identity"><?= $adminPanel ? 'Nombre de usuario' : 'Número de teléfono' ?></label>
             <input id="login-identity" name="<?= $adminPanel ? 'username' : 'phone' ?>" type="<?= $adminPanel ? 'text' : 'tel' ?>" autocomplete="username" <?= $adminPanel ? 'maxlength="80" autocapitalize="none" spellcheck="false"' : 'inputmode="tel" maxlength="20"' ?> required>
             <label for="login-password">Contraseña</label>
             <input id="login-password" name="password" type="password" autocomplete="current-password" maxlength="1024" required>
             <p class="form-message" id="login-message" role="alert"></p>
-            <button class="button primary wide" type="submit">Entrar <span>→</span></button>
+            <button class="button primary wide" type="submit">Entrar</button>
           </form>
         </section>
       </section>
@@ -58,33 +60,33 @@ header("Content-Security-Policy: default-src 'self'; script-src 'self'; style-sr
     <main id="portal-screen" class="portal-shell" hidden>
       <aside class="sidebar">
         <a class="brand" href="<?= $adminPanel ? 'index.php' : 'portal.php' ?>">
-          <img class="ora-logo sidebar-logo" src="assets/img/ora-logo.png" alt="ORA — Organización Renovadora Auténtica">
+          <img class="ora-logo sidebar-logo" src="assets/img/ora-logo-transparent.png" alt="ORA — Organización Renovadora Auténtica">
           <span><strong>Movilizaciones</strong><small><?= $adminPanel ? 'Administración' : 'Portal operativo' ?></small></span>
         </a>
-        <p class="nav-caption"><?= $adminPanel ? 'ADMINISTRACIÓN' : 'MI ESPACIO' ?></p>
+        <p class="nav-caption"><?= $adminPanel ? 'Administración' : 'Mi espacio' ?></p>
         <?php if ($adminPanel): ?>
-          <button class="nav-item active" type="button" data-view="tracking" data-module-nav="tracking"><span>⌖</span> Seguimiento</button>
-          <button class="nav-item" type="button" data-view="events" data-module-nav="events"><span>▦</span> Movilizaciones</button>
-          <button class="nav-item" type="button" data-view="reports" data-module-nav="reports"><span>▤</span> Reporte</button>
-          <button class="nav-item" id="structure-nav-item" type="button" data-view="structure" data-module-nav="structure"><span>⌘</span> Estructura</button>
-          <button class="nav-item" type="button" data-view="settings" data-module-nav="settings"><span>⚙</span> Configuración</button>
+          <button class="nav-item active" type="button" data-view="tracking" data-module-nav="tracking"><span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/><circle cx="12" cy="12" r="8"/></svg></span> Seguimiento</button>
+          <button class="nav-item" type="button" data-view="events" data-module-nav="events"><span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="17" rx="3"/><path d="M8 2v4M16 2v4M3 10h18"/></svg></span> Movilizaciones</button>
+          <button class="nav-item" type="button" data-view="reports" data-module-nav="reports"><span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h9l4 4v14H6z"/><path d="M14 3v5h5M9 13h7M9 17h5"/></svg></span> Reporte</button>
+          <button class="nav-item" id="structure-nav-item" type="button" data-view="structure" data-module-nav="structure"><span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="5" r="2.5"/><circle cx="5" cy="19" r="2.5"/><circle cx="19" cy="19" r="2.5"/><path d="M12 7.5v4M12 11.5H5v5M12 11.5h7v5"/></svg></span> Estructura</button>
+          <button class="nav-item" type="button" data-view="settings" data-module-nav="settings"><span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/></svg></span> Configuración</button>
         <?php else: ?>
-          <button class="nav-item active" type="button" data-view="events"><span>▦</span> Mis movilizaciones</button>
+          <button class="nav-item active" type="button" data-view="events"><span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="17" rx="3"/><path d="M8 2v4M16 2v4M3 10h18"/></svg></span> Mis movilizaciones</button>
         <?php endif; ?>
         <div class="sidebar-bottom">
           <div class="profile-card">
             <span class="avatar" id="user-avatar">US</span>
             <span class="profile-text"><strong id="user-name">Usuario</strong>            <small id="user-role"><?= $adminPanel ? 'Administración' : 'Responsable' ?></small></span>
           </div>
-          <button class="nav-item logout" id="logout-button" type="button"><span>↪</span> Cerrar sesión</button>
+          <button class="nav-item logout" id="logout-button" type="button"><span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h4M15 8l4 4-4 4M19 12H9"/></svg></span> Cerrar sesión</button>
         </div>
       </aside>
 
       <section class="main-content">
         <header class="topbar"><span class="breadcrumb"><?= $adminPanel ? 'Administración' : 'Portal' ?> <span>/</span> <strong id="current-page-label"><?= $adminPanel ? 'Seguimiento' : 'Mis movilizaciones' ?></strong></span><span class="today" id="today-label"></span></header>
         <section class="page-heading">
-          <div><?php if (!$adminPanel): ?><p class="eyebrow">PANEL DE TRABAJO</p><?php endif; ?><h1><span id="heading-name"><?= $adminPanel ? 'Seguimiento en vivo' : 'disponibles' ?></span></h1><p class="subtle" id="heading-description"><?= $adminPanel ? 'Ubicación y avance de los movilizadores en ruta.' : 'Selecciona una movilización para completar los pasos y registrar tu viaje.' ?></p></div>
-          <button class="button primary" id="new-event-button" type="button" hidden>＋ Nueva movilización</button>
+          <div><?php if (!$adminPanel): ?><p class="eyebrow">Panel de trabajo</p><?php endif; ?><h1><span id="heading-name"><?= $adminPanel ? 'Seguimiento en vivo' : 'Movilizaciones disponibles' ?></span></h1><p class="subtle" id="heading-description"><?= $adminPanel ? 'Ubicación y avance de los movilizadores en ruta.' : 'Selecciona una movilización para completar los pasos y registrar tu viaje.' ?></p></div>
+          <button class="button primary" id="new-event-button" type="button" hidden>+ Nueva movilización</button>
         </section>
         <?php if ($adminPanel): ?>
         <section class="tracking-view" id="tracking-view" data-page="tracking">
@@ -94,7 +96,7 @@ header("Content-Security-Policy: default-src 'self'; script-src 'self'; style-sr
               <select id="tracking-event-select" aria-label="Seleccionar movilización activa"></select>
             </label>
             <button class="button secondary" id="tracking-refresh" type="button">Actualizar</button>
-            <button class="button primary" id="tracking-presentation-toggle" type="button" aria-pressed="false">⛶ Modo presentación</button>
+            <button class="button primary" id="tracking-presentation-toggle" type="button" aria-pressed="false">Modo presentación</button>
             <span class="tracking-updated" id="tracking-updated-at">Esperando datos…</span>
           </div>
           <div class="tracking-layout">
@@ -129,7 +131,7 @@ header("Content-Security-Policy: default-src 'self'; script-src 'self'; style-sr
           <div class="section-heading structure-heading">
             <div class="structure-actions">
               <button class="button secondary" id="show-structure-button" type="button">Mostrar Estructura</button>
-              <button class="button primary" id="new-structure-user" type="button">＋ Nuevo movilizador</button>
+              <button class="button primary" id="new-structure-user" type="button">+ Nuevo movilizador</button>
             </div>
           </div>
           <div class="notice warning" id="structure-notice" role="status" hidden></div>
@@ -213,14 +215,14 @@ header("Content-Security-Policy: default-src 'self'; script-src 'self'; style-sr
 
     <main id="mobilizer-workflow-screen" class="mobilizer-workflow-screen" hidden>
       <header class="workflow-topbar">
-        <img class="ora-logo" src="assets/img/ora-logo.png" alt="ORA — Organización Renovadora Auténtica">
+        <img class="ora-logo" src="assets/img/ora-logo-transparent.png" alt="ORA — Organización Renovadora Auténtica">
         <div class="workflow-topbar-actions">
           <button class="button secondary" id="back-to-events" type="button">← Movilizaciones</button>
           <button class="button secondary" id="workflow-logout-button" type="button">Cerrar sesión</button>
         </div>
       </header>
       <section class="workflow-page-heading">
-        <p class="eyebrow">REGISTRO DE MOVILIZACIÓN</p>
+        <p class="eyebrow">Registro de movilización</p>
         <h1 id="workflow-event-title"></h1>
         <p class="subtle" id="workflow-event-meta"></p>
       </section>
@@ -230,7 +232,7 @@ header("Content-Security-Policy: default-src 'self'; script-src 'self'; style-sr
 
     <div class="modal-backdrop" id="event-modal" hidden>
       <section class="dialog event-dialog" role="dialog" aria-modal="true" aria-labelledby="event-dialog-title">
-        <header class="dialog-header"><div><p class="eyebrow">NUEVA ACTIVIDAD</p><h2 id="event-dialog-title">Crear movilización</h2></div><button class="icon-button" type="button" data-close-dialog aria-label="Cerrar">×</button></header>
+        <header class="dialog-header"><div><p class="eyebrow">Nueva actividad</p><h2 id="event-dialog-title">Crear movilización</h2></div><button class="icon-button" type="button" data-close-dialog aria-label="Cerrar">×</button></header>
         <form id="event-form" class="dialog-body">
           <div class="field-grid">
             <label class="field full">Nombre de la actividad<input name="name" maxlength="140" required placeholder="Jornada de atención comunitaria"></label>
@@ -260,7 +262,7 @@ header("Content-Security-Policy: default-src 'self'; script-src 'self'; style-sr
 
     <div class="modal-backdrop" id="detail-modal" hidden>
       <section class="dialog detail-dialog" role="dialog" aria-modal="true" aria-labelledby="detail-title">
-        <header class="dialog-header"><div><p class="eyebrow">SEGUIMIENTO DE ACTIVIDAD</p><h2 id="detail-title"></h2></div><button class="icon-button" type="button" data-close-dialog aria-label="Cerrar">×</button></header>
+        <header class="dialog-header"><div><p class="eyebrow">Seguimiento de actividad</p><h2 id="detail-title"></h2></div><button class="icon-button" type="button" data-close-dialog aria-label="Cerrar">×</button></header>
         <div class="dialog-body" id="detail-body"></div>
       </section>
     </div>
