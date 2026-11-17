@@ -1057,7 +1057,7 @@ function distanceBetweenCoordinates(first, second) {
   return 6371000 * 2 * Math.atan2(Math.sqrt(haversine), Math.sqrt(1 - haversine));
 }
 
-function estimateTrackingPosition(mobilizer, now = Date.now()) {
+function estimateTrackingPosition(mobilizer, now = Date.now(), anchor = null) {
   if (mobilizer.tracking_leg === "retorno") return null;
   const route = parseTrackingRoute(mobilizer.ruta_personal_geojson);
   const startedAt = Number(mobilizer.tracking_started_at_epoch);
@@ -1076,9 +1076,31 @@ function estimateTrackingPosition(mobilizer, now = Date.now()) {
   }
   if (totalDistance <= 0) return null;
 
-  const elapsedSeconds = Math.max(0, now / 1000 - startedAt);
-  const progress = Math.min(1, elapsedSeconds / durationSeconds);
-  const targetDistance = totalDistance * progress;
+  let elapsedSeconds = Math.max(0, now / 1000 - startedAt);
+  let progress = Math.min(1, elapsedSeconds / durationSeconds);
+  let targetDistance = totalDistance * progress;
+  if (anchor?.point && Number.isFinite(anchor.ageSeconds)) {
+    // Parte desde la última posición real proyectada sobre la ruta y avanza a la velocidad media prevista.
+    const kLat = 111320;
+    const kLng = 111320 * Math.cos(anchor.point.latitude * Math.PI / 180);
+    let best = { gap: Infinity, along: 0 };
+    segments.forEach(item => {
+      const ax = (item.start.longitude - anchor.point.longitude) * kLng;
+      const ay = (item.start.latitude - anchor.point.latitude) * kLat;
+      const bx = (item.end.longitude - anchor.point.longitude) * kLng;
+      const by = (item.end.latitude - anchor.point.latitude) * kLat;
+      const dx = bx - ax;
+      const dy = by - ay;
+      const lengthSquared = dx * dx + dy * dy;
+      const t = lengthSquared > 0 ? Math.max(0, Math.min(1, -(ax * dx + ay * dy) / lengthSquared)) : 0;
+      const gap = Math.hypot(ax + dx * t, ay + dy * t);
+      if (gap < best.gap) best = { gap, along: item.startDistance + item.segmentDistance * t };
+    });
+    const speed = totalDistance / durationSeconds;
+    targetDistance = Math.min(totalDistance, best.along + speed * Math.max(0, anchor.ageSeconds));
+    progress = targetDistance / totalDistance;
+    elapsedSeconds = progress * durationSeconds;
+  }
   const segment = segments.find(item => targetDistance <= item.startDistance + item.segmentDistance) || segments[segments.length - 1];
   const segmentProgress = segment.segmentDistance > 0
     ? Math.max(0, Math.min(1, (targetDistance - segment.startDistance) / segment.segmentDistance))
@@ -1112,10 +1134,12 @@ function trackingDisplayPosition(mobilizer, now = Date.now()) {
     };
   }
   const fresh = trackingSignalIsFresh(mobilizer);
-  const expected = estimateTrackingPosition(mobilizer, now);
+  const expected = estimateTrackingPosition(mobilizer, now,
+    !fresh && actual ? { point: actual, ageSeconds: trackingSignalAgeSeconds(mobilizer, now) } : null);
   const deviation = actual && expected ? distanceBetweenCoordinates(actual, expected) : null;
-  // El punto estimado solo se muestra mientras no se haya recibido ninguna señal real.
-  const estimated = expected && !actual ? expected : null;
+  // El punto estimado se muestra mientras no haya señal GPS fresca (sin señal nunca o conexión perdida);
+  // al recuperar la conexión desaparece y el punto real corrige la posición.
+  const estimated = expected && !(fresh && actual) ? expected : null;
   return {
     returning,
     returned: false,
@@ -1623,7 +1647,7 @@ function renderTrackingMobilizerDetail(mobilizer, event) {
     : position.fresh
     ? "Señal recibida"
     : position.actual
-      ? `Sin señal · última ubicación ${formatAge(position.ageSeconds)}`
+      ? `Sin señal · última ubicación ${formatAge(position.ageSeconds)}${position.estimated ? " · avance proyectado" : ""}`
       : position.estimated
         ? "Sin GPS recibido · avance proyectado"
         : "Esperando GPS";
