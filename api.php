@@ -69,7 +69,9 @@ function require_module(array $user, string $module): void
 function public_user(PDO $pdo, array $account): array
 {
     $roleId = $account['rol_sistema_id'] === null ? null : (int) $account['rol_sistema_id'];
-    $isSuperadmin = $account['rol'] === 'admin' && $account['nombre_usuario'] === 'admin' && $roleId === null;
+    $isSuperadmin = $account['rol'] === 'admin' &&
+        strcasecmp((string) $account['nombre_usuario'], 'admin') === 0 &&
+        $roleId === null;
     $modules = [];
     if ($isSuperadmin) {
         $modules = ADMIN_MODULES;
@@ -348,7 +350,7 @@ try {
         $adminStatement = $pdo->query(
             "SELECT u.id, u.nombre, u.nombre_usuario, u.activo, u.rol_sistema_id, r.nombre AS role_name " .
             "FROM usuarios u JOIN roles_sistema r ON r.id = u.rol_sistema_id " .
-            "WHERE u.rol = 'admin' AND u.nombre_usuario <> 'admin' ORDER BY u.nombre"
+            "WHERE u.rol = 'admin' AND LOWER(u.nombre_usuario) <> 'admin' ORDER BY u.nombre"
         );
         foreach ($adminStatement->fetchAll() as $admin) {
             $modules = role_modules($pdo, (int) $admin['rol_sistema_id']);
@@ -470,7 +472,8 @@ try {
             );
             $targetStatement->execute([$userId]);
             $target = $targetStatement->fetch();
-            if (!$target || $target['nombre_usuario'] === 'admin' || $target['rol_sistema_id'] === null) {
+            if (!$target || strcasecmp((string) $target['nombre_usuario'], 'admin') === 0 ||
+                $target['rol_sistema_id'] === null) {
                 respond(['error' => 'No puedes modificar la cuenta superadministradora.'], 403);
             }
             if (!can_manage_modules(role_modules($pdo, (int) $target['rol_sistema_id']), $user)) {

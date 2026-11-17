@@ -41,7 +41,9 @@ Portal web para coordinación y movilizadores. Incluye inicio de sesión con ses
    Remove-Item Env:MOV_SUPER_ADMIN_PASSWORD
    ```
 
-   Si ya existe el usuario `admin`, el script no lo sobrescribe. Usa **Configuración** en el panel para crear otros usuarios administrativos y asignarles un rol. `scripts\create_user.php` queda para crear cuentas de movilizador; estas inician sesión con su teléfono.    Si prefieres no modificar `config.php`, crea `config.local.php` para sobrescribir sus valores y mantenlo fuera del control de versiones.
+   Si ya existe el usuario `admin`, el script no lo sobrescribe. Usa **Configuración** en el panel para crear otros usuarios administrativos y asignarles un rol. `scripts\create_user.php` queda para crear cuentas de movilizador; estas inician sesión con su teléfono. Si prefieres no modificar `config.php`, crea `config.local.php` para sobrescribir sus valores y mantenlo fuera del control de versiones.
+
+   Como alternativa puntual, después de crear el esquema puedes ejecutar `migrations/20261122_initial_super_admin.sql` para crear/restablecer el superadministrador `Admin`. Esta migración no forma parte de `schema.sql` ni de la lista de migraciones generales. Despliega también la versión actualizada de `api.php`, que reconoce `Admin` sin distinguir mayúsculas/minúsculas y habilita sus módulos; ejecutar solo el SQL en una versión anterior del backend puede dejar el menú sin módulos. La contraseña inicial es `Ora2026*`, así que cámbiala después del primer acceso.
 
 8. Abre `http://localhost/movilizacion/` para entrar al **panel administrativo**. El portal de movilizadores está en `http://localhost/movilizacion/portal.php`. En teléfonos y en cualquier acceso fuera del equipo servidor, utiliza el dominio HTTPS real.
 
