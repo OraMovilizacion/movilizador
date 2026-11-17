@@ -3,15 +3,32 @@ declare(strict_types=1);
 
 function load_config(): array
 {
-    $externalConfig = getenv('MOV_CONFIG_FILE');
-    $configPath = $externalConfig !== false && $externalConfig !== ''
-        ? $externalConfig
-        : __DIR__ . '/config.local.php';
-    $config = is_file($configPath) ? require $configPath : [];
-    if (!is_array($config)) {
-        throw new RuntimeException('El archivo de configuración debe devolver un arreglo.');
+    $config = [];
+    $projectConfig = __DIR__ . '/config.php';
+    if (is_file($projectConfig)) {
+        $config = require $projectConfig;
+        if (!is_array($config)) {
+            throw new RuntimeException('El archivo config.php debe devolver un arreglo.');
+        }
     }
 
+    $localConfig = __DIR__ . '/config.local.php';
+    if (is_file($localConfig)) {
+        $localValues = require $localConfig;
+        if (!is_array($localValues)) {
+            throw new RuntimeException('El archivo config.local.php debe devolver un arreglo.');
+        }
+        $config = array_replace($config, $localValues);
+    }
+
+    $externalConfig = getenv('MOV_CONFIG_FILE');
+    if ($externalConfig !== false && $externalConfig !== '') {
+        $externalValues = is_file($externalConfig) ? require $externalConfig : null;
+        if (!is_array($externalValues)) {
+            throw new RuntimeException('El archivo indicado por MOV_CONFIG_FILE debe existir y devolver un arreglo.');
+        }
+        $config = array_replace($config, $externalValues);
+    }
     foreach ([
         'db_host' => 'MOV_DB_HOST',
         'db_port' => 'MOV_DB_PORT',

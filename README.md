@@ -12,8 +12,8 @@ Portal web para coordinación y movilizadores. Incluye inicio de sesión con ses
 
 1. Inicia Apache y MySQL/MariaDB desde XAMPP.
 2. Para una instalación nueva, importa `schema.sql`. Si ya tienes la base anterior, conserva sus datos y ejecuta las migraciones pendientes en orden: `migrations/20261113_portal.sql` (solo si aún no habías agregado rutas y tracking), `migrations/20261114_estructura.sql`, `migrations/20261115_admin_login.sql`, `migrations/20261116_flujo_movilizador.sql`, `migrations/20261117_personas_estimadas.sql`, `migrations/20261118_roles_modulos_admin.sql`, `migrations/20261119_estadisticas_modulo.sql`, `migrations/20261120_remove_statistics_module.sql` y `migrations/20261121_tracking_arrival_vehicle_photos.sql`. Ejecuta cada migración una sola vez.
-3. Crea un usuario MySQL propio de la aplicación con permisos sobre la base `movilizaciones`; no uses `root` ni guardes una contraseña dentro del código.
-4. Copia `config.example.php` como `config.local.php` y reemplaza los datos de conexión. Genera un secreto de aplicación de al menos 32 caracteres; por ejemplo:
+3. Crea un usuario MySQL propio de la aplicación con permisos sobre la base `movilizaciones`; no uses `root`.
+4. Edita `config.php` con los datos de conexión de ese servidor (`db_host`, `db_name`, `db_user`, `db_password`) y reemplaza `app_secret` por un secreto aleatorio de al menos 32 caracteres. Puedes generarlo así:
 
    ```sh
    php -r "echo bin2hex(random_bytes(32)), PHP_EOL;"
@@ -41,15 +41,15 @@ Portal web para coordinación y movilizadores. Incluye inicio de sesión con ses
    Remove-Item Env:MOV_SUPER_ADMIN_PASSWORD
    ```
 
-   Si ya existe el usuario `admin`, el script no lo sobrescribe. Usa **Configuración** en el panel para crear otros usuarios administrativos y asignarles un rol. `scripts\create_user.php` queda para crear cuentas de movilizador; estas inician sesión con su teléfono. Mantén `config.local.php` fuera del control de versiones.
+   Si ya existe el usuario `admin`, el script no lo sobrescribe. Usa **Configuración** en el panel para crear otros usuarios administrativos y asignarles un rol. `scripts\create_user.php` queda para crear cuentas de movilizador; estas inician sesión con su teléfono.    Si prefieres no modificar `config.php`, crea `config.local.php` para sobrescribir sus valores y mantenlo fuera del control de versiones.
 
 8. Abre `http://localhost/movilizacion/` para entrar al **panel administrativo**. El portal de movilizadores está en `http://localhost/movilizacion/portal.php`. En teléfonos y en cualquier acceso fuera del equipo servidor, utiliza el dominio HTTPS real.
 
 ## Despliegue en un servidor Apache
 
-`config.local.php` no se incluye en Git para evitar publicar credenciales. En el servidor puedes crear ese archivo junto a `db.php` con los datos propios del servidor y permisos de lectura para el usuario de PHP, o guardar el archivo fuera del directorio público y configurar `MOV_CONFIG_FILE` con su ruta absoluta. El archivo debe devolver el mismo arreglo que `config.example.php`; no uses las credenciales locales de XAMPP salvo que correspondan también a la base del servidor.
+El proyecto incluye `config.php` como archivo principal de conexión. Edita allí los datos propios de la base del servidor. También puedes conservar un `config.local.php` junto a `db.php` para sobrescribirlos sin cambiar el archivo principal; ese archivo está excluido de Git.
 
-Como alternativa, configura las variables `MOV_DB_HOST`, `MOV_DB_PORT`, `MOV_DB_NAME`, `MOV_DB_USER`, `MOV_DB_PASSWORD` y `MOV_APP_SECRET` en el entorno del proceso PHP. Con Apache y `mod_php` pueden definirse dentro del VirtualHost con directivas `SetEnv`; con PHP-FPM deben configurarse en el pool de FPM y permitirse en su entorno. `MOV_APP_SECRET` debe ser aleatorio y tener al menos 32 caracteres. No guardes estas variables en archivos públicos ni en el repositorio.
+Como alternativa, configura las variables `MOV_DB_HOST`, `MOV_DB_PORT`, `MOV_DB_NAME`, `MOV_DB_USER`, `MOV_DB_PASSWORD` y `MOV_APP_SECRET` en el entorno del proceso PHP. Con Apache y `mod_php` pueden definirse dentro del VirtualHost con directivas `SetEnv`; con PHP-FPM deben configurarse en el pool de FPM y permitirse en su entorno. `MOV_APP_SECRET` debe ser aleatorio y tener al menos 32 caracteres.
 
 Después de configurar el acceso, importa `schema.sql` o aplica solo las migraciones pendientes, compila los recursos con `npm install` y `npm run build`, y ejecuta los seeders necesarios. Comprueba el endpoint `api.php?action=session` y confirma que responde HTTP 200 antes de iniciar sesión.
 
