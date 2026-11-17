@@ -1057,11 +1057,44 @@ function distanceBetweenCoordinates(first, second) {
   return 6371000 * 2 * Math.atan2(Math.sqrt(haversine), Math.sqrt(1 - haversine));
 }
 
+// Ruta prevista del movilizador: la guardada o, si falta, una línea recta salida → destino
+// con duración estimada a ~30 km/h, para que el avance estimado nunca quede sin datos.
+function plannedRouteInfo(mobilizer) {
+  let coordinates = parseTrackingRoute(mobilizer.ruta_personal_geojson);
+  let fallback = false;
+  if (coordinates.length < 2) {
+    const event = trackingEventById(mobilizer.movilizacion_id);
+    const destination = event ? eventDestination(event) : null;
+    const startLat = Number(mobilizer.punto_salida_lat);
+    const startLng = Number(mobilizer.punto_salida_lng);
+    if (destination && mobilizer.punto_salida_lat !== null && mobilizer.punto_salida_lat !== undefined &&
+        mobilizer.punto_salida_lat !== "" && Number.isFinite(startLat) && Number.isFinite(startLng)) {
+      coordinates = [[startLng, startLat], [destination[1], destination[0]]];
+      fallback = true;
+    } else {
+      coordinates = [];
+    }
+  }
+  let durationSeconds = Number(mobilizer.ruta_personal_duracion_segundos);
+  if ((!Number.isFinite(durationSeconds) || durationSeconds <= 0) && coordinates.length >= 2) {
+    let meters = 0;
+    for (let index = 1; index < coordinates.length; index += 1) {
+      meters += distanceBetweenCoordinates(
+        { latitude: coordinates[index - 1][1], longitude: coordinates[index - 1][0] },
+        { latitude: coordinates[index][1], longitude: coordinates[index][0] }
+      );
+    }
+    durationSeconds = meters / 8.33;
+  }
+  return { coordinates, durationSeconds, fallback };
+}
+
 function estimateTrackingPosition(mobilizer, now = Date.now(), anchor = null) {
   if (mobilizer.tracking_leg === "retorno") return null;
-  const route = parseTrackingRoute(mobilizer.ruta_personal_geojson);
+  const planned = plannedRouteInfo(mobilizer);
+  const route = planned.coordinates;
   const startedAt = Number(mobilizer.tracking_started_at_epoch);
-  const durationSeconds = Number(mobilizer.ruta_personal_duracion_segundos);
+  const durationSeconds = planned.durationSeconds;
   if (route.length < 2 || !Number.isFinite(startedAt) || startedAt <= 0 ||
       !Number.isFinite(durationSeconds) || durationSeconds <= 0) return null;
 
@@ -1563,7 +1596,7 @@ function updateTrackingMarker(markerKey, point, mobilizer, event, state, signalL
 function drawPlannedTrackingRoute(mobilizer) {
   removeMapLine(trackingOverviewMap, "tracking-overview-route");
   trackingOverviewRoute = null;
-  const coordinates = parseTrackingRoute(mobilizer.ruta_personal_geojson);
+  const coordinates = plannedRouteInfo(mobilizer).coordinates;
   if (coordinates.length < 2 || !trackingOverviewMap) return;
   trackingOverviewRoute = "tracking-overview-route";
   trackingDirections?.clear();

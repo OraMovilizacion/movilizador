@@ -684,7 +684,7 @@ try {
         $mobilizerQuery = $pdo->prepare(
             'SELECT me.movilizacion_id, me.id AS assignment_id, u.nombre AS responsable, ' .
             'me.personas_planificadas, me.personas_asistentes, me.requiere_transporte, me.vehiculos_json, ' .
-            'me.punto_salida, me.ruta_personal_geojson, me.ruta_personal_duracion_segundos, ' .
+            'me.punto_salida, me.punto_salida_lat, me.punto_salida_lng, me.ruta_personal_geojson, me.ruta_personal_duracion_segundos, ' .
             'ts.estado AS tracking_status, ts.tipo AS tracking_leg, ts.llegada_confirmada_en, UNIX_TIMESTAMP(ts.iniciado_en) AS tracking_started_at_epoch, ' .
             '(SELECT tp.latitud FROM tracking_puntos tp WHERE tp.tracking_sesion_id = ts.id ORDER BY tp.registrado_en DESC, tp.id DESC LIMIT 1) AS latitude, ' .
             '(SELECT tp.longitud FROM tracking_puntos tp WHERE tp.tracking_sesion_id = ts.id ORDER BY tp.registrado_en DESC, tp.id DESC LIMIT 1) AS longitude, ' .
