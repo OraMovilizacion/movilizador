@@ -527,6 +527,18 @@ try {
         respond(['users' => $statement->fetchAll()]);
     }
 
+    if ($action === 'territories' && $method === 'GET') {
+        require_admin($user);
+        if (!in_array('events', $user['modules'] ?? [], true) && !in_array('structure', $user['modules'] ?? [], true)) {
+            respond(['error' => 'Tu rol no tiene acceso a este módulo.'], 403);
+        }
+        $statement = $pdo->query(
+            'SELECT id, codigo, nombre, nivel, padre_id FROM unidades_territoriales WHERE activo = 1 ' .
+            'ORDER BY FIELD(nivel, \'nacional\', \'estadal\', \'municipal\'), nombre'
+        );
+        respond(['territories' => $statement->fetchAll()]);
+    }
+
     if ($action === 'structure' && $method === 'GET') {
         require_admin($user);
         require_module($user, 'structure');

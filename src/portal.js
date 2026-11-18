@@ -263,20 +263,7 @@ function showLogin(message = "") {
   if (message) showFormMessage(loginMessage, message);
 }
 
-function updateMobilizerIdentity() {
-  if (!user) return;
-  const initials = user.name.trim().split(/\s+/).slice(0, 2).map(part => part[0]).join("").toUpperCase();
-  const stateLabel = user.territoryName ? `Estado ${user.territoryName}` : "Sin estado asignado";
-  const set = (id, text) => { const element = document.getElementById(id); if (element) element.textContent = text; };
-  set("bar-avatar", initials);
-  set("bar-name", user.name);
-  set("bar-state", stateLabel);
-  set("workflow-user-name", user.name);
-  set("workflow-user-state", stateLabel);
-}
-
 function showPortal() {
-  updateMobilizerIdentity();
   loginScreen.hidden = true;
   workflowScreen.hidden = true;
   portalScreen.hidden = false;
@@ -1874,8 +1861,27 @@ function resetEventForm() {
   showFormMessage(eventMessage, "");
 }
 
+// Las entidades federales se cargan al abrir el formulario, sin exigir pasar antes por «Estructura».
+async function ensureEventTerritories() {
+  if (territories.some(unit => unit.nivel === "estadal")) {
+    populateEventStates();
+    return;
+  }
+  try {
+    const result = await request("territories");
+    territories = result.territories;
+    populateEventStates();
+    if (!territories.some(unit => unit.nivel === "estadal")) {
+      showFormMessage(eventMessage, "No hay entidades federales cargadas. Ejecuta la migración de la estructura de estados.");
+    }
+  } catch (error) {
+    showFormMessage(eventMessage, error.message);
+  }
+}
+
 function showEventModal() {
   resetEventForm();
+  void ensureEventTerritories();
   eventModal.hidden = false;
   window.setTimeout(createRouteMap, 80);
 }
@@ -2619,7 +2625,6 @@ function initializeMobilizerTrackingMap(assignment) {
 function renderMobilizerWorkflow(event, assignments) {
   destroyWorkflowMaps();
   portalScreen.hidden = true;
-  updateMobilizerIdentity();
   workflowScreen.hidden = false;
   workflowScreen.classList.toggle(
     "workflow-trip-mode",
@@ -3664,8 +3669,6 @@ document.getElementById("logout-button").addEventListener("click", async () => {
     showNotice(error.message);
   }
 });
-
-document.getElementById("bar-logout-button")?.addEventListener("click", () => document.getElementById("logout-button").click());
 
 document.getElementById("workflow-logout-button").addEventListener("click", async () => {
   if (activeTracking) {
