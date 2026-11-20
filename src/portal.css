@@ -481,7 +481,7 @@ input:focus, select:focus, textarea:focus { border-color: var(--signal) !importa
 .wizard-alert { margin: 10px 0; padding: 12px 14px; border: 1px solid var(--warn-line); border-radius: var(--r-md); background: var(--warn-soft); color: var(--warn); font-size: 13px; line-height: 1.5; }
 .wizard-alert.success { border-color: var(--signal-line); background: var(--signal-soft); color: var(--signal-dark); }
 .wizard-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 10px; margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--line); }
-.vehicle-row { display: grid; grid-template-columns: minmax(150px, .9fr) minmax(110px, .8fr) 100px 90px; align-items: end; gap: 12px; padding: 16px; border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--surface-2); }
+.vehicle-row { display: grid; grid-template-columns: minmax(150px, .9fr) minmax(110px, .8fr) 200px 90px; align-items: end; gap: 12px; padding: 16px; border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--surface-2); }
 .vehicle-row .field { font-size: 12px; }
 .vehicle-row .field input, .vehicle-row .field select { height: 44px; background: var(--surface); }
 .vehicle-row .vehicle-photo-button { min-height: 44px; padding: 8px; font-size: 13px !important; }
@@ -628,6 +628,7 @@ body[data-portal-mode="mobilizer"] .event-card-actions .button { min-height: 48p
   .wizard-progress-item { flex-direction: column; align-items: flex-start; gap: 7px; padding: 9px 8px; font-size: 11px; }
   .wizard-progress-item > span { width: 24px; height: 24px; font-size: 12px; }
   .vehicle-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; padding: 12px; }
+  .vehicle-row .photo-options { grid-column: 1 / -1; }
   .vehicle-row-actions { justify-content: flex-end; }
   .trip-summary { grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: 8px; }
   .trip-summary > .button { grid-column: 1 / -1; justify-self: end; }
@@ -698,3 +699,9 @@ body[data-portal-mode="mobilizer"] .event-card-actions .button { min-height: 48p
 .structure-members { display: grid; gap: 8px; margin-bottom: 8px; }
 .structure-members h3 { margin: 6px 0 6px; font-size: 17px; }
 .structure-members h3 small { margin-left: 8px; color: var(--muted); font-size: 12px; font-weight: 400; }
+
+.photo-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.photo-options .camera-button { text-align: center; }
+.photo-options.compact { align-self: end; }
+.photo-options.compact .camera-button { min-height: 44px; padding: 8px 6px; font-size: 13px !important; }
+@media (max-width: 380px) { .photo-options:not(.compact) { grid-template-columns: 1fr; } }

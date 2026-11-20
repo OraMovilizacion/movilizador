@@ -857,8 +857,19 @@ async function captureLiveMapImage({ event, live = [] }) {
         paint: { "circle-radius": 8, "circle-color": "#e5322d", "circle-stroke-color": "#ffffff", "circle-stroke-width": 2 } });
     }
     map.fitBounds(bounds, { padding: 70, maxZoom: 15, duration: 0 });
-    // Si el mapa tarda en quedar quieto, se toma la captura igual con lo que ya se dibujó
-    await waitFor(map, "idle", 15000);
+    // Se espera a que el mapa de fondo termine de cargar Y a que los puntos ya estén dibujados.
+    // Si pasa demasiado tiempo se toma la captura igual con lo que haya.
+    const pause = ms => new Promise(resolve => window.setTimeout(resolve, ms));
+    const dotsDrawn = () => map.getLayer("report-live-dot") &&
+      map.queryRenderedFeatures({ layers: ["report-live-dot"] }).length > 0;
+    const waitStarted = Date.now();
+    while (Date.now() - waitStarted < 30000) {
+      map.resize();
+      map.triggerRepaint();
+      await pause(400);
+      if (map.loaded() && map.areTilesLoaded() && dotsDrawn()) break;
+    }
+    await pause(600);
     // La captura se lee justo después de un dibujado, cuando el lienzo todavía tiene la imagen
     const dataUrl = await new Promise((resolve, reject) => {
       map.once("render", () => {
@@ -2864,6 +2875,15 @@ function getAssignmentVehicles(assignment) {
   }
 }
 
+function photoOptions(dataAttributes, compact = false) {
+  // Dos formas de agregar fotos: abrir la cámara o elegir una imagen ya guardada en el teléfono
+  const input = capture => `<input type="file" accept="image/*"${capture ? ' capture="environment"' : ""} multiple data-workflow-photo ${dataAttributes}>`;
+  return `<div class="photo-options${compact ? " compact" : ""}">
+    <label class="camera-button">▧ Tomar foto${input(true)}</label>
+    <label class="camera-button">⇪ ${compact ? "Subir" : "Subir foto"}${input(false)}</label>
+  </div>`;
+}
+
 function renderMobilizerAssignment(assignment, event) {
   const assignmentId = Number(assignment.id);
   const stage = currentWorkflowStage(assignment);
@@ -2903,9 +2923,7 @@ function renderMobilizerAssignment(assignment, event) {
       <p>Registra manualmente la cantidad de personas y agrega una foto clara de la lista como evidencia.</p>
       <form class="wizard-form" data-step-form data-step="plan" data-assignment-id="${assignmentId}">
         <label>Cantidad de personas<input name="plannedPeople" type="number" min="0" max="1000000" value="${assignment.personas_planificadas ?? ""}" required></label>
-        <label class="camera-button">▧ Tomar o seleccionar foto(s) de la lista
-          <input type="file" accept="image/*" capture="environment" multiple data-workflow-photo data-photo-category="lista" data-assignment-id="${assignmentId}">
-        </label>
+        ${photoOptions(`data-photo-category="lista" data-assignment-id="${assignmentId}"`)}
         <p class="wizard-help" data-photo-status="${assignmentId}" data-saved-count="${listPhotos}">${listPhotos} foto(s) de lista guardada(s). Puedes añadir más fotos en varias tandas.</p>
         <div class="wizard-actions"><button class="button primary" type="submit">Guardar y continuar →</button></div>
       </form>
@@ -2967,9 +2985,7 @@ function renderMobilizerAssignment(assignment, event) {
         <div class="review-item"><small>Llegada · ruta estimada</small><strong><span data-geocode="arrival" data-latitude="${end?.latitude ?? ""}" data-longitude="${end?.longitude ?? ""}">${escapeHtml(event.punto_llegada_nombre || assignment.punto_llegada_nombre || "Buscando zona…")}</span><span class="route-summary-time"> · ${escapeHtml(routeTime)}</span></strong></div>
       </div>
       <form class="wizard-form" data-step-form data-step="confirm" data-assignment-id="${assignmentId}">
-        <label class="camera-button">▧ Tomar foto(s) del grupo
-          <input type="file" accept="image/*" capture="environment" multiple data-workflow-photo data-photo-category="grupo" data-assignment-id="${assignmentId}">
-        </label>
+        ${photoOptions(`data-photo-category="grupo" data-assignment-id="${assignmentId}"`)}
         <p class="wizard-help" data-photo-status="${assignmentId}" data-saved-count="${groupPhotos}">${groupPhotos} foto(s) de grupo guardada(s). Necesitas al menos una para confirmar.</p>
         <div class="wizard-alert" data-photo-alert="${assignmentId}" ${groupPhotos ? "hidden" : ""}>Primero toma y guarda al menos una foto del grupo.</div>
         <div class="wizard-actions">
@@ -3392,9 +3408,7 @@ function addWorkflowVehicleRow(container, vehicle = {}, photoCounts = {}) {
     </label>
     <input type="hidden" name="vehicleCount" value="${Number(vehicle.count) || 1}">
     <label class="field vehicle-plates">Placa<input name="vehiclePlates" maxlength="160" value="${escapeHtml(vehicle.plates || "")}" placeholder="ABC123"></label>
-    <label class="camera-button vehicle-photo-button">▧ Foto
-      <input type="file" accept="image/*" capture="environment" multiple data-workflow-photo data-photo-category="vehiculo" data-vehicle-id="${row.dataset.vehicleId}" data-assignment-id="${container.closest("[data-assignment-id]")?.dataset.assignmentId || ""}">
-    </label>
+    ${photoOptions(`data-photo-category="vehiculo" data-vehicle-id="${row.dataset.vehicleId}" data-assignment-id="${container.closest("[data-assignment-id]")?.dataset.assignmentId || ""}"`, true)}
     <div class="vehicle-row-actions">
       <button class="button small secondary" type="button" data-add-vehicle="${container.closest("[data-assignment-id]")?.dataset.assignmentId || ""}" aria-label="Agregar otro vehículo">＋</button>
       <button class="remove-row" type="button" aria-label="Quitar vehículo">×</button>
