@@ -1,0 +1,11 @@
+{
+  "src/portal.js": {
+    "file": "assets/portal.js",
+    "name": "portal",
+    "src": "src/portal.js",
+    "isEntry": true,
+    "css": [
+      "assets/portal.css"
+    ]
+  }
+}
