@@ -1231,13 +1231,29 @@ try {
             respond(['error' => 'No se encontró la movilización.'], 404);
         }
 
+        // Autobuses reportados a nivel de evento (si la migración 20261202 ya se aplicó)
+        try {
+            $busQuery = $pdo->prepare('SELECT autobuses_reportados, autobuses_caracas FROM movilizaciones WHERE id = ?');
+            $busQuery->execute([$eventId]);
+            $event = array_merge($event, $busQuery->fetch() ?: []);
+        } catch (PDOException $exception) {
+            // Columnas aún no creadas: se usan solo los datos de cada registro.
+        }
+        $zoneColumn = false;
+        try {
+            $zoneColumn = (bool) $pdo->query("SHOW COLUMNS FROM movilizacion_entes LIKE 'zona_estado'")->fetch();
+        } catch (PDOException $exception) {
+            $zoneColumn = false;
+        }
+
         // El estado de cada registro sale de la unidad del usuario: estado, o el estado al que pertenece su
         // municipio o parroquia. Sin unidad (o a nivel nacional) queda sin estado y el resumen lo cuenta como "Otros".
         $assignmentQuery = $pdo->prepare(
             'SELECT me.personas_planificadas, me.personas_asistentes, me.cuota_personas, me.vehiculos_json, ' .
             'me.cantidad_autobuses, me.plan_confirmado_en, ' .
+            ($zoneColumn ? 'COALESCE(me.zona_estado, ' : '(') .
             "CASE ut.nivel WHEN 'estadal' THEN ut.nombre WHEN 'municipal' THEN up.nombre " .
-            "WHEN 'parroquial' THEN upp.nombre ELSE NULL END AS estado_registro " .
+            "WHEN 'parroquial' THEN upp.nombre ELSE NULL END) AS estado_registro " .
             'FROM movilizacion_entes me ' .
             'LEFT JOIN usuarios u ON u.id = me.responsable_usuario_id ' .
             'LEFT JOIN unidades_territoriales ut ON ut.id = u.unidad_territorial_id ' .
