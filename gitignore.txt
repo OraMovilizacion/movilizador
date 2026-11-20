@@ -1,0 +1,6 @@
+node_modules/
+config.local.php
+uploads/attendance/*
+!uploads/attendance/.htaccess
+.DS_Store
+Thumbs.db
