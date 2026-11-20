@@ -1288,7 +1288,20 @@ try {
             $liveRow['points'] = $path;
         }
         unset($liveRow);
-        respond(['event' => $event, 'assignments' => $assignments, 'live' => $live]);
+        $attendees = [];
+        try {
+            $attendeeQuery = $pdo->prepare(
+                'SELECT a.id, a.movilizacion_ente_id, e.nombre AS ente, a.nombre, a.cedula, a.telefono ' .
+                'FROM asistentes a JOIN movilizacion_entes me ON me.id = a.movilizacion_ente_id ' .
+                'JOIN entes e ON e.id = me.ente_id WHERE me.movilizacion_id = ? ORDER BY e.nombre, a.orden, a.id'
+            );
+            $attendeeQuery->execute([$eventId]);
+            $attendees = $attendeeQuery->fetchAll();
+        } catch (PDOException $exception) {
+            // La tabla de asistentes aún no existe: el reporte sigue funcionando sin la lista.
+            $attendees = [];
+        }
+        respond(['event' => $event, 'assignments' => $assignments, 'live' => $live, 'attendees' => $attendees]);
     }
 
     if ($action === 'event-detail' && $method === 'GET') {
