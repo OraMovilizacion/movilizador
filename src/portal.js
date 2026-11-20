@@ -409,8 +409,7 @@ function reportVehicleItems(assignment) {
       id: String(vehicle.id || ""),
       type: String(vehicle.type || "Vehículo"),
       count: Math.max(0, Number(vehicle.count) || 0),
-      plates: String(vehicle.plates || "").trim(),
-      people: Number(vehicle.people) || 0
+      plates: String(vehicle.plates || "").trim()
     }));
   }
   const buses = Number(assignment.cantidad_autobuses) || 0;
@@ -491,7 +490,7 @@ function buildEventReport({ event, assignments }) {
   const eventRouteDistance = Number(event.ruta_distancia_metros);
   const assignmentsHtml = assignments.length ? assignments.map(assignment => {
     const vehicles = reportVehicleItems(assignment);
-    const vehicleRows = vehicles.length ? vehicles.map(vehicle => `<tr><td>${escapeHtml(vehicle.type)}</td><td>${vehicle.count}</td><td>${escapeHtml(vehicle.plates || "Sin placa registrada")}</td><td>${vehicle.people ? vehicle.people : "—"}</td></tr>`).join("") : '<tr><td colspan="4">No reportó vehículos</td></tr>';
+    const vehicleRows = vehicles.length ? vehicles.map(vehicle => `<tr><td>${escapeHtml(vehicle.type)}</td><td>${vehicle.count}</td><td>${escapeHtml(vehicle.plates || "Sin placa registrada")}</td></tr>`).join("") : '<tr><td colspan="3">No reportó vehículos</td></tr>';
     const photos = assignment.photos || [];
     const photoGallery = photos.length ? `<div class="report-photos">${photos.map(photo => `
       <figure>${photo.url ? `<img src="${escapeHtml(new URL(photo.url, window.location.href).href)}" alt="${escapeHtml(photo.nombre_original || photo.tipo)}">` : '<div class="report-photo-missing">Imagen no disponible</div>'}
@@ -533,7 +532,7 @@ function buildEventReport({ event, assignments }) {
           ${reportField("Duración estimada", reportDuration(assignment.ruta_personal_duracion_segundos))}
           ${reportField("Geometría de ruta personal", reportRouteSummary(assignment.ruta_personal_geojson))}
           ${reportField("Datos confirmados", reportDateTime(assignment.datos_confirmados_en))}
-      </div><div class="report-table-wrap"><table class="report-table"><thead><tr><th>Tipo de vehículo</th><th>Cantidad</th><th>Placas</th><th>Personas</th></tr></thead><tbody>${vehicleRows}</tbody></table></div></section>
+      </div><div class="report-table-wrap"><table class="report-table"><thead><tr><th>Tipo de vehículo</th><th>Cantidad</th><th>Placas</th></tr></thead><tbody>${vehicleRows}</tbody></table></div></section>
       <section class="report-subsection"><h4>Evidencias fotográficas (${photos.length})</h4><p class="report-muted">${escapeHtml(photosByType)}</p>${photoGallery}</section>
       <section class="report-subsection"><h4>Seguimiento GPS (${sessions.length} sesiones)</h4>${sessionHtml}</section>
     </article>`;
@@ -640,7 +639,7 @@ function buildDetailedEventSheet({ event, assignments }) {
       : formatCount(assignment.personas_asistentes);
     const vehicleItems = reportVehicleItems(assignment);
     const vehicleRows = vehicleItems.length
-      ? vehicleItems.map(vehicle => `<tr><td>${escapeHtml(vehicle.type)}</td><td>${formatCount(vehicle.count)}</td><td>${escapeHtml(vehicle.plates || "Sin placa informada")}</td><td>${vehicle.people ? formatCount(vehicle.people) : "—"}</td></tr>`).join("")
+      ? vehicleItems.map(vehicle => `<tr><td>${escapeHtml(vehicle.type)}</td><td>${formatCount(vehicle.count)}</td><td>${escapeHtml(vehicle.plates || "Sin placa informada")}</td></tr>`).join("")
       : '<tr><td colspan="3">No informó vehículos</td></tr>';
     const photos = Array.isArray(assignment.photos) ? assignment.photos : [];
     const photoGallery = photos.length
@@ -692,7 +691,7 @@ function buildDetailedEventSheet({ event, assignments }) {
         ${reportField("Distancia aproximada", Number(assignment.ruta_personal_distancia_metros) > 0 ? `${(Number(assignment.ruta_personal_distancia_metros) / 1000).toFixed(1)} km` : "Sin estimación")}
         ${reportField("Duración aproximada", reportDuration(assignment.ruta_personal_duracion_segundos))}
         ${reportField("Transporte confirmado", assignment.transporte_confirmado_en ? reportDateTime(assignment.transporte_confirmado_en) : "Pendiente")}
-      </div><div class="sheet-table-wrap"><table class="sheet-table"><thead><tr><th>Tipo de vehículo</th><th>Cantidad</th><th>Placa</th><th>Personas</th></tr></thead><tbody>${vehicleRows}</tbody></table></div></section>
+      </div><div class="sheet-table-wrap"><table class="sheet-table"><thead><tr><th>Tipo de vehículo</th><th>Cantidad</th><th>Placa</th></tr></thead><tbody>${vehicleRows}</tbody></table></div></section>
       <section class="sheet-subsection"><h4>Fotografías adjuntas (${photos.length})</h4>${photoGallery}</section>
       <section class="sheet-subsection"><h4>Seguimiento del recorrido (${trackingSessions.length})</h4>${trackingSummary}</section>
     </article>`;
@@ -1691,8 +1690,7 @@ function renderTrackingMobilizerDetail(mobilizer, event) {
         const type = String(vehicle.type || "Vehículo");
         const count = Number(vehicle.count) || 1;
         const plates = String(vehicle.plates || "").trim();
-        const people = Number(vehicle.people) || 0;
-        return `${escapeHtml(type)} × ${count}${plates ? ` · Placa(s): ${escapeHtml(plates)}` : ""}${people ? ` · ${people} persona(s)` : ""}`;
+        return `${escapeHtml(type)} × ${count}${plates ? ` · Placa(s): ${escapeHtml(plates)}` : ""}`;
       }).join("<br>")
       : "Transporte reportado; sin vehículos detallados"
     : "No requiere transporte";
@@ -2634,9 +2632,8 @@ function renderMobilizerAssignment(assignment, event) {
           </select>
         </label>
         <div data-vehicle-section="${assignmentId}" ${requiresTransport ? "" : "hidden"}>
-          <div class="route-heading"><div><h3>Vehículos</h3><p>Registra cada vehículo, cuántas personas van en él, y agrega otra fila con +.</p></div></div>
-          <div class="vehicle-list" data-vehicle-list="${assignmentId}" data-planned="${Number(assignment.personas_planificadas) || 0}"></div>
-          <p class="wizard-help vehicle-people-total" data-vehicle-people-total></p>
+          <div class="route-heading"><div><h3>Vehículos</h3><p>Registra cada vehículo y agrega otra fila con +.</p></div></div>
+          <div class="vehicle-list" data-vehicle-list="${assignmentId}"></div>
           <p class="wizard-help" data-photo-status="${assignmentId}" data-saved-count="${vehiclePhotos}">${vehiclePhotos} evidencia(s) de vehículo guardada(s). Ingresa la placa manualmente y agrega su foto como evidencia.</p>
         </div>
         <div class="route-picker-grid">
@@ -2667,7 +2664,7 @@ function renderMobilizerAssignment(assignment, event) {
     </section>`;
   } else if (stage === 3) {
     const vehiclesSummary = vehicles.length
-      ? vehicles.map(vehicle => `${escapeHtml(vehicle.type)} × ${Number(vehicle.count)}${vehicle.plates ? ` · placas: ${escapeHtml(vehicle.plates)}` : ""}${Number(vehicle.people) ? ` · ${Number(vehicle.people)} persona(s)` : ""}`).join("<br>")
+      ? vehicles.map(vehicle => `${escapeHtml(vehicle.type)} × ${Number(vehicle.count)}${vehicle.plates ? ` · placas: ${escapeHtml(vehicle.plates)}` : ""}`).join("<br>")
       : "Sin vehículo";
     stepContent = `<section class="wizard-stage">
       <h3>3. Revisa y confirma los datos</h3>
@@ -3104,7 +3101,6 @@ function addWorkflowVehicleRow(container, vehicle = {}, photoCounts = {}) {
     </label>
     <input type="hidden" name="vehicleCount" value="${Number(vehicle.count) || 1}">
     <label class="field vehicle-plates">Placa<input name="vehiclePlates" maxlength="160" value="${escapeHtml(vehicle.plates || "")}" placeholder="ABC123"></label>
-    <label class="field vehicle-people">Personas<input name="vehiclePeople" type="number" inputmode="numeric" min="1" max="100000" value="${Number(vehicle.people) > 0 ? Number(vehicle.people) : ""}" placeholder="0" aria-label="Personas que van en este vehículo"></label>
     <label class="camera-button vehicle-photo-button">▧ Foto
       <input type="file" accept="image/*" capture="environment" multiple data-workflow-photo data-photo-category="vehiculo" data-vehicle-id="${row.dataset.vehicleId}" data-assignment-id="${container.closest("[data-assignment-id]")?.dataset.assignmentId || ""}">
     </label>
@@ -3116,36 +3112,9 @@ function addWorkflowVehicleRow(container, vehicle = {}, photoCounts = {}) {
   row.querySelector('[name="vehicleType"]').value = vehicle.type || "Autobús";
   row.querySelector(".remove-row").addEventListener("click", () => {
     if (container.childElementCount > 1) row.remove();
-    else {
-      row.querySelector('[name="vehiclePlates"]').value = "";
-      row.querySelector('[name="vehiclePeople"]').value = "";
-    }
-    updateVehiclePeopleTotal(container);
+    else row.querySelector('[name="vehiclePlates"]').value = "";
   });
   container.appendChild(row);
-  updateVehiclePeopleTotal(container);
-}
-
-// Muestra cuántas personas ya quedaron repartidas en los vehículos frente a las planificadas.
-function updateVehiclePeopleTotal(container) {
-  const section = container.closest("[data-vehicle-section]");
-  const output = section?.querySelector("[data-vehicle-people-total]");
-  if (!output) return;
-  const total = [...container.querySelectorAll('[name="vehiclePeople"]')]
-    .reduce((sum, input) => sum + (Number(input.value) || 0), 0);
-  const planned = Number(container.dataset.planned) || 0;
-  output.classList.remove("ok", "over");
-  if (!planned) {
-    output.textContent = `${total} persona(s) repartidas en los vehículos.`;
-  } else if (total === planned) {
-    output.textContent = `${total} de ${planned} personas repartidas en los vehículos. ✓`;
-    output.classList.add("ok");
-  } else if (total > planned) {
-    output.textContent = `${total} personas en vehículos, pero registraste ${planned}. Revisa las cantidades.`;
-    output.classList.add("over");
-  } else {
-    output.textContent = `${total} de ${planned} personas repartidas en los vehículos.`;
-  }
 }
 
 function initializeVehicleRows(assignment) {
@@ -3289,11 +3258,9 @@ async function updateAssignment(form) {
       id: row.dataset.vehicleId,
       type: row.querySelector('[name="vehicleType"]').value,
       count: Number(row.querySelector('[name="vehicleCount"]').value),
-      plates: row.querySelector('[name="vehiclePlates"]').value.trim(),
-      people: Number(row.querySelector('[name="vehiclePeople"]').value) || 0
+      plates: row.querySelector('[name="vehiclePlates"]').value.trim()
     }));
     if (!payload.requiresTransport) payload.vehicles = [];
-    else if (payload.vehicles.some(vehicle => vehicle.people < 1)) throw new Error("Indica cuántas personas van en cada vehículo.");
   } else if (step === "confirm") {
     payload.step = "confirm";
   } else {
@@ -3417,7 +3384,20 @@ function storePendingPoints(points) {
   localStorage.setItem(PENDING_KEY, JSON.stringify(points));
 }
 
-async function flushPendingPoints() {
+let flushInFlight = null;
+
+function pendingPointKey(point) {
+  return `${point.sessionId}|${point.time}|${point.latitude}|${point.longitude}`;
+}
+
+// Solo una sincronización a la vez: evita enviar duplicados y que se pierdan puntos nuevos mientras se envía.
+function flushPendingPoints() {
+  if (flushInFlight) return flushInFlight;
+  flushInFlight = flushPendingPointsOnce().finally(() => { flushInFlight = null; });
+  return flushInFlight;
+}
+
+async function flushPendingPointsOnce() {
   if (!user) return false;
   const pending = pendingPoints();
   if (!pending.length) return true;
@@ -3430,14 +3410,16 @@ async function flushPendingPoints() {
     if (!groups.has(point.sessionId)) groups.set(point.sessionId, []);
     groups.get(point.sessionId).push(point);
   });
-  const remaining = [];
+  const sent = new Set();
+  let failed = false;
   for (const [sessionId, points] of groups) {
     for (let offset = 0; offset < points.length; offset += 100) {
       const batch = points.slice(offset, offset + 100);
       try {
         await request("tracking-points", { method: "POST", data: { sessionId: Number(sessionId), points: batch.map(({ sessionId: ignored, ...point }) => point) } });
+        batch.forEach(point => sent.add(pendingPointKey(point)));
       } catch (error) {
-        remaining.push(...points.slice(offset));
+        failed = true;
         if (activeTracking && String(activeTracking.serverSessionId) === String(sessionId)) {
           showTrackingState(navigator.onLine
             ? `No se pudo sincronizar la ubicación con el servidor. Se conserva en este teléfono para reintentar: ${error.message}`
@@ -3447,9 +3429,11 @@ async function flushPendingPoints() {
       }
     }
   }
-  storePendingPoints(remaining);
-  if (!remaining.length && activeTracking) showTrackingState("Conexión restablecida. La ruta está sincronizada con el servidor.", false);
-  return remaining.length === 0;
+  // Se vuelve a leer la cola: pudieron llegar puntos nuevos mientras se enviaba.
+  const stillPending = pendingPoints().filter(point => !sent.has(pendingPointKey(point)));
+  storePendingPoints(stillPending);
+  if (!failed && !stillPending.length && activeTracking) showTrackingState("Conexión restablecida. La ruta está sincronizada con el servidor.", false);
+  return !failed && stillPending.length === 0;
 }
 
 function showTrackingState(message, isError = false) {
@@ -3577,7 +3561,35 @@ function appendTrackingLocation(location, force = false) {
   return pointSaveChain;
 }
 
-function attachTrackingWatch(assignmentId) {
+const GPS_STALE_MS = 45000;
+
+function stopTrackingWatch(current) {
+  if (current?.watchId) navigator.geolocation.clearWatch(current.watchId);
+  if (current) current.watchId = null;
+}
+
+// Vuelve a crear el receptor GPS. Se usa cuando el navegador lo deja "congelado" tras perder la señal.
+function restartTrackingWatch(current, quiet = true) {
+  if (!current || activeTracking !== current) return;
+  stopTrackingWatch(current);
+  current.lastRestartAt = Date.now();
+  attachTrackingWatch(current.assignmentId, quiet);
+}
+
+function watchGeolocationPermission(current) {
+  if (current.permissionWatch || !navigator.permissions?.query) return;
+  current.permissionWatch = true;
+  navigator.permissions.query({ name: "geolocation" }).then(status => {
+    status.onchange = () => {
+      if (status.state === "granted" && activeTracking === current) {
+        current.permissionDenied = false;
+        attachTrackingWatch(current.assignmentId);
+      }
+    };
+  }).catch(() => {});
+}
+
+function attachTrackingWatch(assignmentId, quiet = false) {
   const current = activeTracking;
   if (!current || current.assignmentId !== assignmentId || current.watchId) return;
   if (!window.isSecureContext || !navigator.geolocation) {
@@ -3585,24 +3597,60 @@ function attachTrackingWatch(assignmentId) {
     updateTrackingButtons(assignmentId);
     return;
   }
+  current.watchStartedAt = Date.now();
   current.watchId = navigator.geolocation.watchPosition(position => {
-    void appendTrackingLocation(trackingLocation(position));
+    if (activeTracking !== current) return;
+    const recovered = Boolean(current.signalLost);
+    current.lastFixAt = Date.now();
+    current.signalLost = false;
+    current.permissionDenied = false;
+    if (recovered) showTrackingState("Señal GPS recuperada. Actualizando tu ruta…", false);
+    // Tras una pérdida de señal se guarda siempre el primer punto, aunque esté cerca del anterior.
+    void appendTrackingLocation(trackingLocation(position), recovered).then(() => flushPendingPoints());
   }, error => {
-    if (current.watchId) navigator.geolocation.clearWatch(current.watchId);
-    current.watchId = null;
-    updateTrackingButtons(assignmentId);
-    const message = error.code === 1
-      ? "Se denegó el permiso de ubicación. Actívalo en el navegador para reanudar el GPS."
-      : error.code === 2
-        ? "El teléfono no pudo obtener una señal GPS. Revisa los permisos y la ubicación del dispositivo."
-        : "La ubicación tardó demasiado. El viaje sigue abierto; vuelve a intentar reanudar el GPS.";
-    showTrackingState(message, true);
+    if (activeTracking !== current) return;
+    if (error.code === 1) {
+      stopTrackingWatch(current);
+      current.permissionDenied = true;
+      updateTrackingButtons(assignmentId);
+      showTrackingState("Se denegó el permiso de ubicación. Actívalo en el navegador; el GPS se reanudará solo al permitirlo.", true);
+      watchGeolocationPermission(current);
+      return;
+    }
+    // Señal perdida o lenta: el viaje sigue abierto y el GPS se reintenta solo (ver vigilante más abajo).
+    current.signalLost = true;
+    showTrackingState(error.code === 2
+      ? "Sin señal GPS por ahora. El viaje sigue abierto y se reanudará solo al recuperarla."
+      : "Buscando señal GPS… El viaje sigue abierto y se reanudará solo.", false);
+    if (Date.now() - (current.lastRestartAt || 0) > 10000) {
+      window.setTimeout(() => {
+        if (activeTracking === current && current.signalLost) restartTrackingWatch(current);
+      }, 4000);
+    }
   }, { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 });
   updateTrackingButtons(assignmentId);
-  showTrackingState(navigator.onLine
-    ? "GPS activo. Si sales o cierras la página, el navegador puede pausarlo; vuelve a abrir esta movilización para reanudar."
-    : "Sin conexión a Internet. El GPS se guarda en este teléfono y se enviará al recuperar la conexión.");
+  if (!quiet) {
+    showTrackingState(navigator.onLine
+      ? "GPS activo. Si sales o cierras la página, el navegador puede pausarlo; vuelve a abrir esta movilización para reanudar."
+      : "Sin conexión a Internet. El GPS se guarda en este teléfono y se enviará al recuperar la conexión.");
+  }
 }
+
+// Vigilante: si pasan más de 45 s sin ubicación, o el GPS no está activo, lo reinicia automáticamente.
+window.setInterval(() => {
+  const current = activeTracking;
+  if (!current || document.hidden || current.permissionDenied || !current.serverSessionId) return;
+  const now = Date.now();
+  if (!current.watchId) {
+    attachTrackingWatch(current.assignmentId, true);
+    return;
+  }
+  const lastActivity = current.lastFixAt || current.watchStartedAt || now;
+  if (now - lastActivity > GPS_STALE_MS && now - (current.lastRestartAt || 0) > GPS_STALE_MS) {
+    current.signalLost = true;
+    restartTrackingWatch(current);
+  }
+}, 10000);
 
 async function restoreTrackingSession(event, assignments) {
   if (isAdminPanel || activeTracking) return;
@@ -3952,9 +4000,6 @@ document.addEventListener("keydown", event => {
   if (event.key === "Escape" && trackingPresentationActive) setTrackingPresentation(false);
 });
 document.getElementById("show-structure-button").addEventListener("click", showStructurePresentation);
-document.addEventListener("input", event => {
-  if (event.target.matches?.('[name="vehiclePeople"]')) updateVehiclePeopleTotal(event.target.closest(".vehicle-list"));
-});
 document.getElementById("structure-back").addEventListener("click", () => showStructureOrganization(null));
 document.getElementById("parish-import-button").addEventListener("click", () => void importParishes());
 document.getElementById("structure-orgs").addEventListener("click", event => {
@@ -4062,7 +4107,13 @@ document.addEventListener("visibilitychange", () => {
     showTrackingState("Página en segundo plano: el navegador puede pausar el GPS. La sesión queda abierta y se reanudará al volver.");
   } else if (!document.hidden && activeTracking) {
     if (!activeTracking.watchId) attachTrackingWatch(activeTracking.assignmentId);
-    else showTrackingState("Página activa de nuevo. El viaje sigue abierto; verifica que el GPS esté funcionando.");
+    else {
+      // El navegador pudo pausar el GPS en segundo plano: se reinicia para obtener una ubicación nueva.
+      activeTracking.signalLost = true;
+      restartTrackingWatch(activeTracking);
+      showTrackingState("Página activa de nuevo. Reanudando el GPS…", false);
+    }
+    void flushPendingPoints();
   }
 });
 
@@ -4086,7 +4137,14 @@ window.addEventListener("offline", () => {
 });
 
 window.addEventListener("online", () => {
-  if (activeTracking) showTrackingState("Conexión restablecida. Sincronizando las ubicaciones guardadas…", false);
+  if (activeTracking) {
+    showTrackingState("Conexión restablecida. Sincronizando las ubicaciones guardadas…", false);
+    // Con la red de vuelta se reinicia el GPS: suele recuperar la ubicación más rápido.
+    if (activeTracking.watchId && (activeTracking.signalLost || Date.now() - (activeTracking.lastFixAt || 0) > 20000)) {
+      activeTracking.signalLost = true;
+      restartTrackingWatch(activeTracking);
+    }
+  }
   void flushPendingPoints();
 });
 window.setInterval(() => {
