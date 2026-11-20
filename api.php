@@ -1249,7 +1249,8 @@ try {
         // El estado de cada registro sale de la unidad del usuario: estado, o el estado al que pertenece su
         // municipio o parroquia. Sin unidad (o a nivel nacional) queda sin estado y el resumen lo cuenta como "Otros".
         $assignmentQuery = $pdo->prepare(
-            'SELECT e.nombre AS ente, me.personas_planificadas, me.personas_asistentes, me.cuota_personas, me.vehiculos_json, ' .
+            'SELECT e.nombre AS ente, me.id AS assignment_id, me.personas_planificadas, me.personas_asistentes, me.cuota_personas, me.vehiculos_json, ' .
+            (($_GET['map'] ?? '') === '1' ? 'me.ruta_personal_geojson AS ruta_personal_geojson_mapa, me.punto_salida_lat, me.punto_salida_lng, ' : '') .
             'me.cantidad_autobuses, me.plan_confirmado_en, ' .
             ($zoneColumn ? 'COALESCE(me.zona_estado, ' : '(') .
             "CASE ut.nivel WHEN 'estadal' THEN ut.nombre WHEN 'municipal' THEN up.nombre " .
@@ -1318,7 +1319,26 @@ try {
             // La tabla de asistentes aún no existe: el reporte sigue funcionando sin la lista.
             $attendees = [];
         }
-        respond(['event' => $event, 'assignments' => $assignments, 'live' => $live, 'attendees' => $attendees]);
+        $photos = [];
+        if (($_GET['photos'] ?? '') === '1') {
+            $photoListQuery = $pdo->prepare(
+                'SELECT fa.id, fa.movilizacion_ente_id AS assignment_id, e.nombre AS ente, fa.tipo, fa.vehiculo_id, ' .
+                'fa.ruta_archivo, fa.nombre_original, fa.subido_en ' .
+                'FROM fotos_asistencia fa JOIN movilizacion_entes me ON me.id = fa.movilizacion_ente_id ' .
+                'JOIN entes e ON e.id = me.ente_id WHERE me.movilizacion_id = ? ORDER BY e.nombre, fa.subido_en, fa.id'
+            );
+            $photoListQuery->execute([$eventId]);
+            foreach ($photoListQuery->fetchAll() as $photo) {
+                $storedPath = (string) $photo['ruta_archivo'];
+                $photoPrefix = 'uploads/attendance/';
+                $fileName = str_starts_with($storedPath, $photoPrefix) ? substr($storedPath, strlen($photoPrefix)) : '';
+                $photo['url'] = $fileName !== '' && basename($fileName) === $fileName && !str_contains($fileName, '\\')
+                    ? $storedPath : null;
+                unset($photo['ruta_archivo']);
+                $photos[] = $photo;
+            }
+        }
+        respond(['event' => $event, 'assignments' => $assignments, 'live' => $live, 'attendees' => $attendees, 'photos' => $photos]);
     }
 
     if ($action === 'event-detail' && $method === 'GET') {
