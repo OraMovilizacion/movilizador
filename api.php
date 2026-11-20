@@ -1220,7 +1220,7 @@ try {
 
         $eventQuery = $pdo->prepare(
             'SELECT m.nombre, m.fecha, m.hora_inicio, m.personas_estimadas_movilizar, m.lugar, t.nombre AS municipio, ' .
-            'p.nombre AS estado_nombre, m.punto_llegada_nombre, m.punto_llegada_lat, m.punto_llegada_lng ' .
+            'p.nombre AS estado_nombre, m.punto_llegada_nombre, m.punto_llegada_lat, m.punto_llegada_lng, m.ruta_ideal_geojson ' .
             'FROM movilizaciones m ' .
             'LEFT JOIN unidades_territoriales t ON t.id = m.unidad_territorial_id ' .
             'LEFT JOIN unidades_territoriales p ON p.id = t.padre_id WHERE m.id = ?'
@@ -1250,7 +1250,7 @@ try {
 
         // Posición más reciente de quienes están en ruta o ya llegaron (para la captura del mapa en vivo)
         $liveQuery = $pdo->prepare(
-            'SELECT ts.estado AS tracking_status, ts.llegada_confirmada_en, ' .
+            'SELECT ts.estado AS tracking_status, ts.llegada_confirmada_en, me.ruta_personal_geojson, ' .
             '(SELECT tp.latitud FROM tracking_puntos tp WHERE tp.tracking_sesion_id = ts.id ORDER BY tp.registrado_en DESC, tp.id DESC LIMIT 1) AS latitude, ' .
             '(SELECT tp.longitud FROM tracking_puntos tp WHERE tp.tracking_sesion_id = ts.id ORDER BY tp.registrado_en DESC, tp.id DESC LIMIT 1) AS longitude, ' .
             '(SELECT GREATEST(0, LEAST(TIMESTAMPDIFF(SECOND, tp.registrado_en, UTC_TIMESTAMP()), TIMESTAMPDIFF(SECOND, tp.creado_en, NOW()))) ' .

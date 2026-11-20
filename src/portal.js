@@ -808,18 +808,34 @@ async function captureLiveMapImage({ event, live = [] }) {
           properties: { color: colors[liveMobilizerState(item)] },
           geometry: { type: "Point", coordinates: [Number(item.longitude), Number(item.latitude)] }
         }));
+        // Rutas ideales: finas y semitransparentes para que no tapen el mapa ni se tapen entre sí
+        const routeFeatures = live.map(item => {
+          const coordinates = parseTrackingRoute(item.ruta_personal_geojson);
+          return coordinates.length > 1
+            ? { type: "Feature", properties: { color: colors[liveMobilizerState(item)] }, geometry: { type: "LineString", coordinates } }
+            : null;
+        }).filter(Boolean);
+        if (!routeFeatures.length) {
+          const eventRoute = parseTrackingRoute(event.ruta_ideal_geojson);
+          if (eventRoute.length > 1) routeFeatures.push({ type: "Feature", properties: { color: "#5a6b75" }, geometry: { type: "LineString", coordinates: eventRoute } });
+        }
+        routeFeatures.forEach(feature => points.push(...feature.geometry.coordinates));
+        map.addSource("report-routes", { type: "geojson", data: { type: "FeatureCollection", features: routeFeatures } });
+        map.addLayer({ id: "report-routes-line", type: "line", source: "report-routes",
+          layout: { "line-cap": "round", "line-join": "round" },
+          paint: { "line-color": ["get", "color"], "line-width": 2, "line-opacity": 0.8 } });
         map.addSource("report-live", { type: "geojson", data: { type: "FeatureCollection", features } });
         map.addLayer({ id: "report-live-halo", type: "circle", source: "report-live",
-          paint: { "circle-radius": 14, "circle-color": ["get", "color"], "circle-opacity": 0.25 } });
+          paint: { "circle-radius": 10, "circle-color": ["get", "color"], "circle-opacity": 0.25 } });
         map.addLayer({ id: "report-live-dot", type: "circle", source: "report-live",
-          paint: { "circle-radius": 8, "circle-color": ["get", "color"], "circle-stroke-color": "#ffffff", "circle-stroke-width": 3 } });
+          paint: { "circle-radius": 6, "circle-color": ["get", "color"], "circle-stroke-color": "#ffffff", "circle-stroke-width": 2 } });
         if (hasDestination) {
           map.addSource("report-destination", { type: "geojson", data: { type: "Feature", properties: {},
             geometry: { type: "Point", coordinates: destination } } });
           map.addLayer({ id: "report-destination-halo", type: "circle", source: "report-destination",
-            paint: { "circle-radius": 20, "circle-color": "#e5322d", "circle-opacity": 0.25 } });
+            paint: { "circle-radius": 15, "circle-color": "#e5322d", "circle-opacity": 0.25 } });
           map.addLayer({ id: "report-destination-dot", type: "circle", source: "report-destination",
-            paint: { "circle-radius": 11, "circle-color": "#e5322d", "circle-stroke-color": "#ffffff", "circle-stroke-width": 3 } });
+            paint: { "circle-radius": 8, "circle-color": "#e5322d", "circle-stroke-color": "#ffffff", "circle-stroke-width": 2 } });
         }
         const bounds = new maplibregl.LngLatBounds(points[0], points[0]);
         points.slice(1).forEach(point => bounds.extend(point));
@@ -904,7 +920,7 @@ function buildConciseEventReport({ event, assignments, live = [] }, liveImage = 
   const captureMoment = new Date().toLocaleString("es", { dateStyle: "long", timeStyle: "short" });
   const livePanel = liveImage
     ? `<figure class="report-map"><img src="${liveImage}" alt="Captura del mapa con la ubicación actual de los movilizadores"><figcaption>Captura tomada el ${escapeHtml(captureMoment)} · Mapa © OpenFreeMap © colaboradores de OpenStreetMap</figcaption></figure>
-      <div class="report-map-legend"><span><i style="background:#1681b4"></i>En camino <strong>${formatCount(liveCounts.moving)}</strong></span><span><i style="background:#1f9d6b"></i>Ya llegaron <strong>${formatCount(liveCounts.arrived)}</strong></span><span><i style="background:#e0a100"></i>Sin señal reciente <strong>${formatCount(liveCounts.lost)}</strong></span><span><i style="background:#e5322d"></i>Punto de llegada</span></div>`
+      <div class="report-map-legend"><span><i style="background:#1681b4"></i>En camino <strong>${formatCount(liveCounts.moving)}</strong></span><span><i style="background:#1f9d6b"></i>Ya llegaron <strong>${formatCount(liveCounts.arrived)}</strong></span><span><i style="background:#e0a100"></i>Sin señal reciente <strong>${formatCount(liveCounts.lost)}</strong></span><span><i style="background:#e5322d"></i>Punto de llegada</span><span class="report-map-note">Las líneas finas son la ruta ideal de cada movilizador.</span></div>`
     : `<p class="report-empty">${live.length ? "No se pudo generar la captura del mapa en este momento." : "Todavía no hay movilizadores en camino o llegados para mostrar en el mapa."}</p>`;
   const details = [
     { icon: "date", label: "Fecha del evento", value: eventDate(event.fecha) },
