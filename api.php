@@ -1249,12 +1249,13 @@ try {
         // El estado de cada registro sale de la unidad del usuario: estado, o el estado al que pertenece su
         // municipio o parroquia. Sin unidad (o a nivel nacional) queda sin estado y el resumen lo cuenta como "Otros".
         $assignmentQuery = $pdo->prepare(
-            'SELECT me.personas_planificadas, me.personas_asistentes, me.cuota_personas, me.vehiculos_json, ' .
+            'SELECT e.nombre AS ente, me.personas_planificadas, me.personas_asistentes, me.cuota_personas, me.vehiculos_json, ' .
             'me.cantidad_autobuses, me.plan_confirmado_en, ' .
             ($zoneColumn ? 'COALESCE(me.zona_estado, ' : '(') .
             "CASE ut.nivel WHEN 'estadal' THEN ut.nombre WHEN 'municipal' THEN up.nombre " .
             "WHEN 'parroquial' THEN upp.nombre ELSE NULL END) AS estado_registro " .
             'FROM movilizacion_entes me ' .
+            'JOIN entes e ON e.id = me.ente_id ' .
             'LEFT JOIN usuarios u ON u.id = me.responsable_usuario_id ' .
             'LEFT JOIN unidades_territoriales ut ON ut.id = u.unidad_territorial_id ' .
             'LEFT JOIN unidades_territoriales up ON up.id = ut.padre_id ' .
