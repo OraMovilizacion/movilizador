@@ -127,6 +127,114 @@ function normalize_phone(string $value): string
     return preg_match('/^\+?\d{7,20}$/', $phone) ? $phone : '';
 }
 
+/**
+ * Envía la respuesta al cliente de inmediato y deja que el script siga trabajando.
+ * Así el teléfono no espera a que el servidor termine de optimizar las imágenes.
+ */
+function respond_and_continue(array $body): void
+{
+    ignore_user_abort(true);
+    @set_time_limit(180);
+    $json = json_encode($body, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: '{}';
+    http_response_code(200);
+    header('Content-Type: application/json; charset=utf-8');
+    header('Cache-Control: no-store');
+    if (function_exists('fastcgi_finish_request')) {
+        echo $json;
+        fastcgi_finish_request();
+        return;
+    }
+    header('Content-Length: ' . strlen($json));
+    header('Connection: close');
+    echo $json;
+    while (ob_get_level() > 0) {
+        @ob_end_flush();
+    }
+    flush();
+}
+
+function memory_limit_bytes(): int
+{
+    $value = trim((string) ini_get('memory_limit'));
+    if ($value === '' || $value === '-1') {
+        return PHP_INT_MAX;
+    }
+    $number = (int) $value;
+    return match (strtolower(substr($value, -1))) {
+        'g' => $number * 1024 ** 3,
+        'm' => $number * 1024 ** 2,
+        'k' => $number * 1024,
+        default => $number
+    };
+}
+
+/**
+ * Reduce en el servidor las fotos pesadas (máx. 1600 px, calidad 80) respetando la
+ * orientación EXIF y sin datos de ubicación. Reemplaza el archivo solo si queda más liviano.
+ */
+function optimize_image(string $path, string $mimeType, int $maxEdge = 1600, int $quality = 80): void
+{
+    if (!extension_loaded('gd') || !in_array($mimeType, ['image/jpeg', 'image/webp'], true)) {
+        return;
+    }
+    $originalSize = @filesize($path);
+    $info = @getimagesize($path);
+    if ($originalSize === false || !$info) {
+        return;
+    }
+    [$width, $height] = $info;
+    if ($width < 1 || $height < 1 || (max($width, $height) <= $maxEdge && $originalSize <= 600 * 1024)) {
+        return;
+    }
+    if ($width * $height * 6 > memory_limit_bytes() * 0.7) {
+        return;
+    }
+    $image = $mimeType === 'image/jpeg' ? @imagecreatefromjpeg($path) : @imagecreatefromwebp($path);
+    if (!$image) {
+        return;
+    }
+    if ($mimeType === 'image/jpeg' && function_exists('exif_read_data')) {
+        $exif = @exif_read_data($path);
+        $rotation = match ((int) ($exif['Orientation'] ?? 1)) {
+            3 => 180,
+            6 => -90,
+            8 => 90,
+            default => 0
+        };
+        if ($rotation !== 0) {
+            $rotated = imagerotate($image, $rotation, 0);
+            if ($rotated) {
+                imagedestroy($image);
+                $image = $rotated;
+            }
+        }
+    }
+    $width = imagesx($image);
+    $height = imagesy($image);
+    $scale = min(1, $maxEdge / max($width, $height));
+    if ($scale < 1) {
+        $resized = imagescale($image, max(1, (int) round($width * $scale)), max(1, (int) round($height * $scale)), IMG_BILINEAR_FIXED);
+        if ($resized) {
+            imagedestroy($image);
+            $image = $resized;
+        }
+    }
+    $temporary = $path . '.tmp';
+    $saved = false;
+    if ($mimeType === 'image/jpeg') {
+        imageinterlace($image, true);
+        $saved = @imagejpeg($image, $temporary, $quality);
+    } else {
+        $saved = @imagewebp($image, $temporary, $quality);
+    }
+    imagedestroy($image);
+    if ($saved && is_file($temporary) && filesize($temporary) > 0 && filesize($temporary) < $originalSize) {
+        @rename($temporary, $path);
+    } elseif (is_file($temporary)) {
+        @unlink($temporary);
+    }
+}
+
 function require_assignment_access(PDO $pdo, array $user, int $assignmentId, string $message): array
 {
     $statement = $pdo->prepare(
@@ -521,7 +629,7 @@ try {
         require_admin($user);
         require_module($user, 'structure');
         $statement = $pdo->query(
-            "SELECT id, nombre, correo, telefono, unidad_territorial_id " .
+            "SELECT id, nombre, correo, telefono, unidad_territorial_id, organizacion_id " .
             "FROM usuarios WHERE activo = 1 AND rol = 'responsable' ORDER BY nombre"
         );
         respond(['users' => $statement->fetchAll()]);
@@ -534,7 +642,7 @@ try {
         }
         $statement = $pdo->query(
             'SELECT id, codigo, nombre, nivel, padre_id FROM unidades_territoriales WHERE activo = 1 ' .
-            'ORDER BY FIELD(nivel, \'nacional\', \'estadal\', \'municipal\'), nombre'
+            'AND nivel <> \'parroquial\' ORDER BY FIELD(nivel, \'nacional\', \'estadal\', \'municipal\'), nombre'
         );
         respond(['territories' => $statement->fetchAll()]);
     }
@@ -542,14 +650,131 @@ try {
     if ($action === 'structure' && $method === 'GET') {
         require_admin($user);
         require_module($user, 'structure');
-        $statement = $pdo->query(
-            'SELECT t.id, t.codigo, t.nombre, t.nivel, t.padre_id, t.activo, ' .
-            'u.id AS usuario_id, u.nombre AS usuario_nombre, u.telefono AS usuario_telefono, ' .
-            'u.correo AS usuario_correo, u.activo AS usuario_activo ' .
-            'FROM unidades_territoriales t LEFT JOIN usuarios u ON u.unidad_territorial_id = t.id ' .
-            'ORDER BY FIELD(t.nivel, \'nacional\', \'estadal\', \'municipal\'), t.nombre'
+        $organizations = $pdo->query(
+            'SELECT id, codigo, nombre, orden FROM organizaciones WHERE activo = 1 ORDER BY orden, nombre'
+        )->fetchAll();
+        $territoryRows = $pdo->query(
+            'SELECT id, codigo, nombre, nivel, padre_id, activo FROM unidades_territoriales ' .
+            'ORDER BY FIELD(nivel, \'nacional\', \'estadal\', \'municipal\', \'parroquial\'), nombre'
+        )->fetchAll();
+        $assignments = $pdo->query(
+            'SELECT id AS usuario_id, nombre AS usuario_nombre, telefono AS usuario_telefono, ' .
+            'correo AS usuario_correo, activo AS usuario_activo, unidad_territorial_id, organizacion_id ' .
+            'FROM usuarios WHERE rol = \'responsable\' AND unidad_territorial_id IS NOT NULL'
+        )->fetchAll();
+        respond(['organizations' => $organizations, 'territories' => $territoryRows, 'assignments' => $assignments]);
+    }
+
+    if ($action === 'parishes-import' && $method === 'POST') {
+        require_admin($user);
+        require_module($user, 'structure');
+        require_csrf();
+        $data = request_data();
+        $rows = $data['rows'] ?? null;
+        if (!is_array($rows) || count($rows) < 1 || count($rows) > 2000) {
+            respond(['error' => 'Envía entre 1 y 2000 filas (estado, municipio, parroquia).'], 422);
+        }
+        $normalize = static function (string $value): string {
+            $value = mb_strtolower(trim($value), 'UTF-8');
+            $value = strtr($value, ['á' => 'a', 'é' => 'e', 'í' => 'i', 'ó' => 'o', 'ú' => 'u', 'ü' => 'u', 'ñ' => 'n']);
+            $value = preg_replace('/^(municipio|parroquia|estado|edo\.?)\s+/u', '', $value) ?? $value;
+            $value = preg_replace('/[^a-z0-9]+/', ' ', $value) ?? $value;
+            return trim($value);
+        };
+        $units = $pdo->query(
+            'SELECT id, codigo, nombre, nivel, padre_id FROM unidades_territoriales ' .
+            'WHERE nivel IN (\'estadal\', \'municipal\')'
+        )->fetchAll();
+        $stateByName = [];
+        $municipalityByKey = [];
+        $municipalityById = [];
+        foreach ($units as $unit) {
+            if ($unit['nivel'] === 'estadal') {
+                $stateByName[$normalize($unit['nombre'])] = $unit;
+            } else {
+                $municipalityById[(int) $unit['id']] = $unit;
+            }
+        }
+        foreach ($municipalityById as $unit) {
+            $stateKey = null;
+            foreach ($stateByName as $key => $state) {
+                if ((int) $state['id'] === (int) $unit['padre_id']) {
+                    $stateKey = $key;
+                    break;
+                }
+            }
+            if ($stateKey !== null) {
+                $municipalityByKey[$stateKey . '|' . $normalize($unit['nombre'])] = $unit;
+            }
+        }
+        $stateAliases = ['la guaira' => 'vargas', 'vargas' => 'la guaira', 'dtto capital' => 'distrito capital',
+            'capital' => 'distrito capital'];
+        $existingStatement = $pdo->prepare(
+            'SELECT codigo, nombre FROM unidades_territoriales WHERE padre_id = ? AND nivel = \'parroquial\''
         );
-        respond(['territories' => $statement->fetchAll()]);
+        $insert = $pdo->prepare(
+            'INSERT INTO unidades_territoriales (codigo, nombre, nivel, padre_id, activo) VALUES (?, ?, \'parroquial\', ?, 1)'
+        );
+        $cache = [];
+        $created = 0;
+        $skipped = 0;
+        $unmatched = [];
+        $pdo->beginTransaction();
+        try {
+            foreach ($rows as $index => $row) {
+                $stateName = $normalize((string) ($row['estado'] ?? $row[0] ?? ''));
+                $municipalityName = $normalize((string) ($row['municipio'] ?? $row[1] ?? ''));
+                $parishName = trim(preg_replace('/^parroquia\s+/iu', '', trim((string) ($row['parroquia'] ?? $row[2] ?? ''))) ?? '');
+                if ($stateName === '' || $municipalityName === '' || $parishName === '' || mb_strlen($parishName) > 120) {
+                    $unmatched[] = 'Fila ' . ($index + 1) . ': datos incompletos';
+                    continue;
+                }
+                $municipality = $municipalityByKey[$stateName . '|' . $municipalityName]
+                    ?? (isset($stateAliases[$stateName]) ? ($municipalityByKey[$stateAliases[$stateName] . '|' . $municipalityName] ?? null) : null);
+                if ($municipality === null) {
+                    $unmatched[] = 'Fila ' . ($index + 1) . ': no se encontró ' . trim((string) ($row['municipio'] ?? $row[1] ?? '')) .
+                        ' (' . trim((string) ($row['estado'] ?? $row[0] ?? '')) . ')';
+                    continue;
+                }
+                $municipalityId = (int) $municipality['id'];
+                if (!isset($cache[$municipalityId])) {
+                    $existingStatement->execute([$municipalityId]);
+                    $cache[$municipalityId] = ['names' => [], 'count' => 0, 'code' => $municipality['codigo']];
+                    foreach ($existingStatement->fetchAll() as $existing) {
+                        $cache[$municipalityId]['names'][$normalize($existing['nombre'])] = true;
+                        $cache[$municipalityId]['count'] = max($cache[$municipalityId]['count'], (int) substr($existing['codigo'], -3));
+                    }
+                }
+                $parishKey = $normalize($parishName);
+                if (isset($cache[$municipalityId]['names'][$parishKey])) {
+                    $skipped++;
+                    continue;
+                }
+                $cache[$municipalityId]['count']++;
+                if ($cache[$municipalityId]['count'] > 999) {
+                    $unmatched[] = 'Fila ' . ($index + 1) . ': demasiadas parroquias en el municipio';
+                    continue;
+                }
+                $code = $cache[$municipalityId]['code'] . str_pad((string) $cache[$municipalityId]['count'], 3, '0', STR_PAD_LEFT);
+                $insert->execute([$code, $parishName, $municipalityId]);
+                $cache[$municipalityId]['names'][$parishKey] = true;
+                $created++;
+            }
+            $pdo->commit();
+        } catch (Throwable $error) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            throw $error;
+        }
+        respond([
+            'created' => $created,
+            'skipped' => $skipped,
+            'unmatched' => array_slice($unmatched, 0, 25),
+            'unmatchedCount' => count($unmatched),
+            'message' => "Parroquias importadas: {$created} nuevas, {$skipped} ya existían" .
+                ($unmatched ? ', ' . count($unmatched) . ' filas sin coincidencia.' : '.')
+        ]);
     }
 
     if ($action === 'structure-user-save' && $method === 'POST') {
@@ -564,7 +789,16 @@ try {
         $email = strtolower(trim((string) ($data['email'] ?? '')));
         $password = (string) ($data['password'] ?? '');
         $territoryId = filter_var($data['territoryId'] ?? null, FILTER_VALIDATE_INT);
+        $organizationId = filter_var($data['organizationId'] ?? null, FILTER_VALIDATE_INT);
         $active = filter_var($data['active'] ?? true, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
+        if ($organizationId === false || $organizationId === null || $organizationId < 1) {
+            respond(['error' => 'Selecciona la organización de esta cuenta.'], 422);
+        }
+        $organizationStatement = $pdo->prepare('SELECT id FROM organizaciones WHERE id = ? AND activo = 1');
+        $organizationStatement->execute([$organizationId]);
+        if (!$organizationStatement->fetchColumn()) {
+            respond(['error' => 'La organización seleccionada no existe.'], 422);
+        }
         if ($userId === false || ($userId !== null && $userId < 1) || $name === '' || mb_strlen($name) > 140 ||
             $phone === '' || ($email !== '' && (!filter_var($email, FILTER_VALIDATE_EMAIL) || mb_strlen($email) > 190)) ||
             $territoryId === false || $territoryId < 1 || $active === null ||
@@ -574,7 +808,7 @@ try {
         }
 
         $unitStatement = $pdo->prepare(
-            "SELECT id FROM unidades_territoriales WHERE id = ? AND activo = 1 AND nivel IN ('nacional', 'estadal', 'municipal')"
+            "SELECT id FROM unidades_territoriales WHERE id = ? AND activo = 1 AND nivel IN ('nacional', 'estadal', 'municipal', 'parroquial')"
         );
         $unitStatement->execute([$territoryId]);
         if (!$unitStatement->fetchColumn()) {
@@ -589,11 +823,11 @@ try {
             respond(['error' => 'Ese teléfono ya está asignado a otra cuenta.'], 409);
         }
         $duplicateUnit = $pdo->prepare(
-            "SELECT id FROM usuarios WHERE unidad_territorial_id = ? AND rol = 'responsable' AND (? IS NULL OR id <> ?) LIMIT 1"
+            "SELECT id FROM usuarios WHERE unidad_territorial_id = ? AND organizacion_id = ? AND rol = 'responsable' AND (? IS NULL OR id <> ?) LIMIT 1"
         );
-        $duplicateUnit->execute([$territoryId, $userId, $userId]);
+        $duplicateUnit->execute([$territoryId, $organizationId, $userId, $userId]);
         if ($duplicateUnit->fetchColumn()) {
-            respond(['error' => 'Ya existe una cuenta responsable para esa unidad territorial.'], 409);
+            respond(['error' => 'Ya existe una cuenta responsable para esa unidad en esta organización.'], 409);
         }
         if ($email !== '') {
             $duplicateEmail = $pdo->prepare(
@@ -607,8 +841,8 @@ try {
 
         if ($userId === null) {
             $insert = $pdo->prepare(
-                "INSERT INTO usuarios (nombre, correo, telefono, password_hash, rol, unidad_territorial_id, activo) " .
-                "VALUES (?, ?, ?, ?, 'responsable', ?, ?)"
+                "INSERT INTO usuarios (nombre, correo, telefono, password_hash, rol, unidad_territorial_id, organizacion_id, activo) " .
+                "VALUES (?, ?, ?, ?, 'responsable', ?, ?, ?)"
             );
             $insert->execute([
                 $name,
@@ -616,6 +850,7 @@ try {
                 $phone,
                 password_hash($password, PASSWORD_DEFAULT),
                 $territoryId,
+                $organizationId,
                 $active ? 1 : 0
             ]);
             respond(['id' => (int) $pdo->lastInsertId(), 'message' => 'Cuenta de movilizador creada.']);
@@ -632,13 +867,14 @@ try {
             $email !== '' ? $email : null,
             $phone,
             $territoryId,
+            $organizationId,
             $active ? 1 : 0,
             $userId
         ];
-        $sql = 'UPDATE usuarios SET nombre = ?, correo = ?, telefono = ?, unidad_territorial_id = ?, activo = ?';
+        $sql = 'UPDATE usuarios SET nombre = ?, correo = ?, telefono = ?, unidad_territorial_id = ?, organizacion_id = ?, activo = ?';
         if ($password !== '') {
             $sql .= ', password_hash = ?';
-            array_splice($values, 5, 0, [password_hash($password, PASSWORD_DEFAULT)]);
+            array_splice($values, 6, 0, [password_hash($password, PASSWORD_DEFAULT)]);
         }
         $sql .= ' WHERE id = ? AND rol = \'responsable\'';
         $pdo->prepare($sql)->execute($values);
@@ -1164,15 +1400,19 @@ try {
                     $type = trim((string) ($vehicle['type'] ?? ''));
                     $count = filter_var($vehicle['count'] ?? null, FILTER_VALIDATE_INT);
                     $plates = trim((string) ($vehicle['plates'] ?? ''));
+                    $people = filter_var($vehicle['people'] ?? 0, FILTER_VALIDATE_INT);
                     if ($type === '' || mb_strlen($type) > 40 || $count === false || $count < 1 || $count > 1000 || mb_strlen($plates) > 160) {
                         respond(['error' => 'Revisa el tipo, la cantidad y las placas de cada vehículo.'], 422);
+                    }
+                    if ($people === false || $people < 0 || $people > 100000 || ($required && $people < 1)) {
+                        respond(['error' => 'Indica cuántas personas van en cada vehículo.'], 422);
                     }
                     $vehicleId = trim((string) ($vehicle['id'] ?? ''));
                     if (!preg_match('/^[A-Za-z0-9_-]{1,64}$/', $vehicleId) || isset($vehicleIds[$vehicleId])) {
                         respond(['error' => 'Cada vehículo debe tener un identificador válido y único.'], 422);
                     }
                     $vehicleIds[$vehicleId] = true;
-                    $validatedVehicles[] = ['id' => $vehicleId, 'type' => $type, 'count' => $count, 'plates' => $plates];
+                    $validatedVehicles[] = ['id' => $vehicleId, 'type' => $type, 'count' => $count, 'plates' => $plates, 'people' => $people];
                 }
                 if ($required && $validatedVehicles === []) {
                     respond(['error' => 'Agrega al menos un vehículo o marca que no requiere transporte.'], 422);
@@ -1284,6 +1524,8 @@ try {
             respond(['error' => 'La asignación no es válida.'], 422);
         }
         require_assignment_access($pdo, $user, $assignmentId, 'No tienes permiso para guardar fotos en esta asignación.');
+        // Libera el bloqueo de sesión: mientras sube una foto, el resto de la app (ubicaciones, tracking) sigue respondiendo.
+        session_write_close();
         $photoType = (string) ($_POST['type'] ?? 'asistencia');
         if (!in_array($photoType, ['asistencia', 'lista', 'vehiculo', 'grupo'], true)) {
             respond(['error' => 'La categoría de foto no es válida.'], 422);
@@ -1308,6 +1550,7 @@ try {
         $allowedTypes = ['image/jpeg' => 'jpg', 'image/png' => 'png', 'image/webp' => 'webp'];
         $insertPhoto = $pdo->prepare('INSERT INTO fotos_asistencia (movilizacion_ente_id, tipo, vehiculo_id, ruta_archivo, nombre_original) VALUES (?, ?, ?, ?, ?)');
         $savedPaths = [];
+        $savedTypes = [];
         $pdo->beginTransaction();
         try {
             for ($index = 0; $index < $count; $index++) {
@@ -1335,6 +1578,7 @@ try {
                 }
                 $relativePath = 'uploads/attendance/' . $filename;
                 $savedPaths[] = $fullPath;
+                $savedTypes[] = $type;
                 $originalName = mb_substr(basename((string) $files['name'][$index]), 0, 255);
                 $insertPhoto->execute([$assignmentId, $photoType, $vehicleId, $relativePath, $originalName]);
             }
@@ -1350,7 +1594,16 @@ try {
             }
             throw $error;
         }
-        respond(['message' => 'Las fotos se guardaron correctamente.']);
+        // La foto ya está guardada: responde al instante y optimiza el archivo después.
+        respond_and_continue(['message' => 'Las fotos se guardaron correctamente.']);
+        foreach ($savedPaths as $position => $savedPath) {
+            try {
+                optimize_image($savedPath, $savedTypes[$position]);
+            } catch (Throwable $optimizeError) {
+                error_log('No se pudo optimizar la foto: ' . $optimizeError->getMessage());
+            }
+        }
+        exit;
     }
 
     if ($action === 'tracking-start' && $method === 'POST') {

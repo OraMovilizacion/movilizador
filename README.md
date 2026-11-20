@@ -26,11 +26,7 @@ Portal web para coordinación y movilizadores. Incluye inicio de sesión con ses
    npm run build
    ```
 
-6. Carga la estructura territorial. El comando es idempotente y registra el nivel nacional, las 24 entidades federales y sus 335 municipios:
-
-   ```powershell
-   C:\xampp\php\php.exe scripts\seed_territories.php
-   ```
+6. Carga la estructura territorial y las organizaciones directamente en la base de datos (sin scripts PHP). Ejecuta en este orden, desde phpMyAdmin o el cliente MySQL, las migraciones `migrations/20261128_estructura_territorial.sql` (nivel nacional, 24 entidades federales y 335 municipios) y `migrations/20261129_organizaciones.sql` (las 8 organizaciones). Son idempotentes. Las parroquias se importan desde **Estructura → Importar parroquias (CSV)** con las columnas `estado, municipio, parroquia` (ver `data/parroquias_ejemplo.csv`).
 
 7. Crea la cuenta superadministradora inicial con el usuario `admin`. Introduce la contraseña mediante una variable de entorno; no se guarda en el repositorio ni se pasa como argumento del comando:
 

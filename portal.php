@@ -180,29 +180,52 @@ header("Content-Security-Policy: default-src 'self'; script-src 'self'; style-sr
         </section>
         </div>
         <section class="section" id="structure-view" data-page="structure" hidden>
-          <div class="section-heading structure-heading">
-            <div class="structure-actions">
-              <button class="button secondary" id="show-structure-button" type="button">Mostrar Estructura</button>
-              <button class="button primary" id="new-structure-user" type="button">+ Nuevo movilizador</button>
-            </div>
-          </div>
           <div class="notice warning" id="structure-notice" role="status" hidden></div>
-          <div id="structure-tree" class="structure-tree"></div>
-          <form id="structure-form" class="structure-form" hidden>
-            <div class="route-heading"><div><h3 id="structure-form-title">Cuenta de movilizador</h3><p>El teléfono sirve para iniciar sesión. La contraseña la define administración.</p></div></div>
-            <input name="userId" type="hidden">
-            <div class="field-grid">
-              <label class="field">Nombre completo<input name="name" maxlength="140" required></label>
-              <label class="field">Teléfono<input name="phone" type="tel" inputmode="tel" maxlength="20" required placeholder="+58 412 1234567"></label>
-              <label class="field">Correo (opcional)<input name="email" type="email" maxlength="190"></label>
-              <label class="field">Unidad territorial<select name="territoryId" required></select></label>
-              <label class="field">Contraseña inicial / nueva<input name="password" type="password" autocomplete="new-password" minlength="8" maxlength="1024"></label>
-              <label class="field">Acceso<select name="active"><option value="1">Activo</option><option value="0">Desactivado</option></select></label>
+          <div id="structure-orgs-view">
+            <div class="section-heading structure-heading">
+              <div><h2>Organizaciones</h2><p>Abre una organización para ver y gestionar su estructura de movilizadores.</p></div>
             </div>
-            <p class="subtle" id="structure-password-help">Mínimo 8 caracteres. Al editar, déjala vacía para conservar la contraseña actual.</p>
-            <p class="form-message" id="structure-message" role="alert"></p>
-            <div class="dialog-actions"><button class="button secondary" id="cancel-structure-user" type="button">Cancelar</button><button class="button primary" id="save-structure-user" type="submit">Guardar cuenta</button></div>
-          </form>
+            <div id="structure-orgs" class="org-grid"></div>
+            <details class="parish-import" id="parish-import">
+              <summary>Importar parroquias (CSV)</summary>
+              <p class="subtle">Archivo CSV con las columnas <code>estado, municipio, parroquia</code> (con o sin encabezado). Las parroquias que ya existen se omiten y puedes repetir la importación sin duplicar datos.</p>
+              <div class="parish-import-actions">
+                <input type="file" id="parish-import-file" accept=".csv,text/csv,text/plain">
+                <button class="button secondary" id="parish-import-button" type="button">Importar</button>
+              </div>
+              <p class="form-message" id="parish-import-message" role="status"></p>
+            </details>
+          </div>
+          <div id="structure-org-view" hidden>
+            <div class="section-heading structure-heading">
+              <div class="org-heading">
+                <button class="button small secondary" id="structure-back" type="button">← Organizaciones</button>
+                <h2 id="structure-org-title"></h2>
+                <p id="structure-org-summary" class="subtle"></p>
+              </div>
+              <div class="structure-actions">
+                <button class="button secondary" id="show-structure-button" type="button">Mostrar Estructura</button>
+                <button class="button primary" id="new-structure-user" type="button">+ Nuevo movilizador</button>
+              </div>
+            </div>
+            <div id="structure-tree" class="structure-tree"></div>
+            <form id="structure-form" class="structure-form" hidden>
+              <div class="route-heading"><div><h3 id="structure-form-title">Cuenta de movilizador</h3><p>El teléfono sirve para iniciar sesión. La contraseña la define administración.</p></div></div>
+              <input name="userId" type="hidden">
+              <input name="organizationId" type="hidden">
+              <div class="field-grid">
+                <label class="field">Nombre completo<input name="name" maxlength="140" required></label>
+                <label class="field">Teléfono<input name="phone" type="tel" inputmode="tel" maxlength="20" required placeholder="+58 412 1234567"></label>
+                <label class="field">Correo (opcional)<input name="email" type="email" maxlength="190"></label>
+                <label class="field">Unidad territorial<select name="territoryId" required></select></label>
+                <label class="field">Contraseña inicial / nueva<input name="password" type="password" autocomplete="new-password" minlength="8" maxlength="1024"></label>
+                <label class="field">Acceso<select name="active"><option value="1">Activo</option><option value="0">Desactivado</option></select></label>
+              </div>
+              <p class="subtle" id="structure-password-help">Mínimo 8 caracteres. Al editar, déjala vacía para conservar la contraseña actual.</p>
+              <p class="form-message" id="structure-message" role="alert"></p>
+              <div class="dialog-actions"><button class="button secondary" id="cancel-structure-user" type="button">Cancelar</button><button class="button primary" id="save-structure-user" type="submit">Guardar cuenta</button></div>
+            </form>
+          </div>
         </section>
         <?php if ($adminPanel): ?>
         <section class="section settings-view" id="settings-view" data-page="settings" hidden>

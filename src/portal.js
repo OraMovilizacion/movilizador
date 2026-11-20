@@ -31,6 +31,10 @@ let user = null;
 let events = [];
 let reportEvents = [];
 let territories = [];
+let structureOrganizations = [];
+let structureAssignments = [];
+let activeStructureOrgId = null;
+const ORG_COLORS = ["#1681b4", "#7c5cff", "#d6336c", "#e8590c", "#2f9e44", "#0b7285", "#9c36b5", "#b08900"];
 let systemRoles = [];
 let systemAdminUsers = [];
 let routeMap = null;
@@ -405,7 +409,8 @@ function reportVehicleItems(assignment) {
       id: String(vehicle.id || ""),
       type: String(vehicle.type || "Vehículo"),
       count: Math.max(0, Number(vehicle.count) || 0),
-      plates: String(vehicle.plates || "").trim()
+      plates: String(vehicle.plates || "").trim(),
+      people: Number(vehicle.people) || 0
     }));
   }
   const buses = Number(assignment.cantidad_autobuses) || 0;
@@ -486,7 +491,7 @@ function buildEventReport({ event, assignments }) {
   const eventRouteDistance = Number(event.ruta_distancia_metros);
   const assignmentsHtml = assignments.length ? assignments.map(assignment => {
     const vehicles = reportVehicleItems(assignment);
-    const vehicleRows = vehicles.length ? vehicles.map(vehicle => `<tr><td>${escapeHtml(vehicle.type)}</td><td>${vehicle.count}</td><td>${escapeHtml(vehicle.plates || "Sin placa registrada")}</td></tr>`).join("") : '<tr><td colspan="3">No reportó vehículos</td></tr>';
+    const vehicleRows = vehicles.length ? vehicles.map(vehicle => `<tr><td>${escapeHtml(vehicle.type)}</td><td>${vehicle.count}</td><td>${escapeHtml(vehicle.plates || "Sin placa registrada")}</td><td>${vehicle.people ? vehicle.people : "—"}</td></tr>`).join("") : '<tr><td colspan="4">No reportó vehículos</td></tr>';
     const photos = assignment.photos || [];
     const photoGallery = photos.length ? `<div class="report-photos">${photos.map(photo => `
       <figure>${photo.url ? `<img src="${escapeHtml(new URL(photo.url, window.location.href).href)}" alt="${escapeHtml(photo.nombre_original || photo.tipo)}">` : '<div class="report-photo-missing">Imagen no disponible</div>'}
@@ -528,7 +533,7 @@ function buildEventReport({ event, assignments }) {
           ${reportField("Duración estimada", reportDuration(assignment.ruta_personal_duracion_segundos))}
           ${reportField("Geometría de ruta personal", reportRouteSummary(assignment.ruta_personal_geojson))}
           ${reportField("Datos confirmados", reportDateTime(assignment.datos_confirmados_en))}
-      </div><div class="report-table-wrap"><table class="report-table"><thead><tr><th>Tipo de vehículo</th><th>Cantidad</th><th>Placas</th></tr></thead><tbody>${vehicleRows}</tbody></table></div></section>
+      </div><div class="report-table-wrap"><table class="report-table"><thead><tr><th>Tipo de vehículo</th><th>Cantidad</th><th>Placas</th><th>Personas</th></tr></thead><tbody>${vehicleRows}</tbody></table></div></section>
       <section class="report-subsection"><h4>Evidencias fotográficas (${photos.length})</h4><p class="report-muted">${escapeHtml(photosByType)}</p>${photoGallery}</section>
       <section class="report-subsection"><h4>Seguimiento GPS (${sessions.length} sesiones)</h4>${sessionHtml}</section>
     </article>`;
@@ -635,7 +640,7 @@ function buildDetailedEventSheet({ event, assignments }) {
       : formatCount(assignment.personas_asistentes);
     const vehicleItems = reportVehicleItems(assignment);
     const vehicleRows = vehicleItems.length
-      ? vehicleItems.map(vehicle => `<tr><td>${escapeHtml(vehicle.type)}</td><td>${formatCount(vehicle.count)}</td><td>${escapeHtml(vehicle.plates || "Sin placa informada")}</td></tr>`).join("")
+      ? vehicleItems.map(vehicle => `<tr><td>${escapeHtml(vehicle.type)}</td><td>${formatCount(vehicle.count)}</td><td>${escapeHtml(vehicle.plates || "Sin placa informada")}</td><td>${vehicle.people ? formatCount(vehicle.people) : "—"}</td></tr>`).join("")
       : '<tr><td colspan="3">No informó vehículos</td></tr>';
     const photos = Array.isArray(assignment.photos) ? assignment.photos : [];
     const photoGallery = photos.length
@@ -687,7 +692,7 @@ function buildDetailedEventSheet({ event, assignments }) {
         ${reportField("Distancia aproximada", Number(assignment.ruta_personal_distancia_metros) > 0 ? `${(Number(assignment.ruta_personal_distancia_metros) / 1000).toFixed(1)} km` : "Sin estimación")}
         ${reportField("Duración aproximada", reportDuration(assignment.ruta_personal_duracion_segundos))}
         ${reportField("Transporte confirmado", assignment.transporte_confirmado_en ? reportDateTime(assignment.transporte_confirmado_en) : "Pendiente")}
-      </div><div class="sheet-table-wrap"><table class="sheet-table"><thead><tr><th>Tipo de vehículo</th><th>Cantidad</th><th>Placa</th></tr></thead><tbody>${vehicleRows}</tbody></table></div></section>
+      </div><div class="sheet-table-wrap"><table class="sheet-table"><thead><tr><th>Tipo de vehículo</th><th>Cantidad</th><th>Placa</th><th>Personas</th></tr></thead><tbody>${vehicleRows}</tbody></table></div></section>
       <section class="sheet-subsection"><h4>Fotografías adjuntas (${photos.length})</h4>${photoGallery}</section>
       <section class="sheet-subsection"><h4>Seguimiento del recorrido (${trackingSessions.length})</h4>${trackingSummary}</section>
     </article>`;
@@ -1686,7 +1691,8 @@ function renderTrackingMobilizerDetail(mobilizer, event) {
         const type = String(vehicle.type || "Vehículo");
         const count = Number(vehicle.count) || 1;
         const plates = String(vehicle.plates || "").trim();
-        return `${escapeHtml(type)} × ${count}${plates ? ` · Placa(s): ${escapeHtml(plates)}` : ""}`;
+        const people = Number(vehicle.people) || 0;
+        return `${escapeHtml(type)} × ${count}${plates ? ` · Placa(s): ${escapeHtml(plates)}` : ""}${people ? ` · ${people} persona(s)` : ""}`;
       }).join("<br>")
       : "Transporte reportado; sin vehículos detallados"
     : "No requiere transporte";
@@ -1891,10 +1897,61 @@ function showStructureNotice(message, isError = true) {
   displayTemporaryNotice(notice, message, isError);
 }
 
+function structureOrgColor(org) {
+  const index = structureOrganizations.findIndex(item => Number(item.id) === Number(org?.id));
+  return ORG_COLORS[(index < 0 ? 0 : index) % ORG_COLORS.length];
+}
+
+function activeStructureOrg() {
+  return structureOrganizations.find(org => Number(org.id) === Number(activeStructureOrgId)) || null;
+}
+
+// Unidades territoriales con la cuenta de la organización abierta (si la hay).
+function structureUnits() {
+  const byUnit = new Map();
+  structureAssignments
+    .filter(item => Number(item.organizacion_id) === Number(activeStructureOrgId))
+    .forEach(item => byUnit.set(Number(item.unidad_territorial_id), item));
+  return territories.map(unit => {
+    const account = byUnit.get(Number(unit.id));
+    return account ? { ...unit, ...account } : unit;
+  });
+}
+
+function structureOrgInitials(name) {
+  const words = String(name).split(/\s+/).filter(Boolean);
+  if (words.length === 1) return words[0].slice(0, 3).toUpperCase();
+  return words.filter(word => word.length > 2).map(word => word[0]).join("").slice(0, 3).toUpperCase();
+}
+
+function renderStructureOrganizations() {
+  const container = document.getElementById("structure-orgs");
+  if (!container) return;
+  const slots = territories.filter(unit => ["nacional", "estadal", "municipal", "parroquial"].includes(unit.nivel));
+  const slotIds = new Set(slots.map(unit => Number(unit.id)));
+  const national = territories.find(unit => unit.nivel === "nacional");
+  container.innerHTML = structureOrganizations.map(org => {
+    const accounts = structureAssignments.filter(item => Number(item.organizacion_id) === Number(org.id) && slotIds.has(Number(item.unidad_territorial_id)));
+    const states = accounts.filter(item => territories.find(unit => Number(unit.id) === Number(item.unidad_territorial_id))?.nivel === "estadal").length;
+    const nationalAccount = accounts.find(item => national && Number(item.unidad_territorial_id) === Number(national.id));
+    const percent = slots.length ? Math.round((accounts.length / slots.length) * 100) : 0;
+    return `<button class="org-card" type="button" data-open-org="${Number(org.id)}" style="--org:${structureOrgColor(org)}">
+      <span class="org-card-mark" aria-hidden="true">${escapeHtml(structureOrgInitials(org.nombre))}</span>
+      <strong>${escapeHtml(org.nombre)}</strong>
+      <span class="org-card-line">${nationalAccount ? `Nacional: ${escapeHtml(nationalAccount.usuario_nombre)}` : "Sin responsable nacional"}</span>
+      <span class="org-card-stats"><b>${accounts.length}</b> cuentas · <b>${states}</b> de 24 estados</span>
+      <span class="org-card-bar" aria-hidden="true"><i style="width:${percent}%"></i></span>
+      <span class="org-card-open">Abrir estructura</span>
+    </button>`;
+  }).join("") || '<div class="empty-state">No hay organizaciones. Ejecuta la migración <code>20261129_organizaciones.sql</code> en la base de datos.</div>';
+}
+
 function renderStructureTree() {
   const tree = document.getElementById("structure-tree");
+  const org = activeStructureOrg();
+  const units = structureUnits();
   const unitsByParent = new Map();
-  territories.forEach(unit => {
+  units.forEach(unit => {
     const key = String(unit.padre_id ?? "root");
     if (!unitsByParent.has(key)) unitsByParent.set(key, []);
     unitsByParent.get(key).push(unit);
@@ -1903,15 +1960,44 @@ function renderStructureTree() {
     ? `<span class="structure-account">${escapeHtml(unit.usuario_nombre)} · ${escapeHtml(unit.usuario_telefono)}${Number(unit.usuario_activo) ? "" : " · Desactivado"}</span>`
     : '<span class="structure-account unassigned">Sin cuenta asignada</span>';
   const editButton = unit => `<button class="button small secondary" type="button" data-edit-territory="${Number(unit.id)}">${unit.usuario_id ? "Editar" : "Asignar cuenta"}</button>`;
-  const municipalityRows = state => (unitsByParent.get(String(state.id)) || []).map(unit =>
-    `<div class="structure-row"><span><strong>${escapeHtml(unit.nombre)}</strong>${userLabel(unit)}</span>${editButton(unit)}</div>`
-  ).join("");
-  const stateRows = (unitsByParent.get(String(territories.find(unit => unit.nivel === "nacional")?.id)) || []).map(state =>
+  const municipalityRows = state => (unitsByParent.get(String(state.id)) || []).map(unit => {
+    const parishes = unitsByParent.get(String(unit.id)) || [];
+    if (!parishes.length) {
+      return `<div class="structure-row"><span><strong>${escapeHtml(unit.nombre)}</strong>${userLabel(unit)}</span>${editButton(unit)}</div>`;
+    }
+    const withAccount = parishes.filter(parish => parish.usuario_id).length;
+    return `<details class="structure-muni"><summary><span><strong>${escapeHtml(unit.nombre)}</strong>${userLabel(unit)}</span><em class="parish-count">${parishes.length} parroquia${parishes.length === 1 ? "" : "s"} · ${withAccount} con responsable</em>${editButton(unit)}</summary>
+      <div class="parish-list">${parishes.map(parish => `<div class="structure-row parish-row"><span><strong>${escapeHtml(parish.nombre)}</strong>${userLabel(parish)}</span>${editButton(parish)}</div>`).join("")}</div></details>`;
+  }).join("");
+  const national = units.find(unit => unit.nivel === "nacional");
+  const stateRows = (unitsByParent.get(String(national?.id)) || []).map(state =>
     `<details class="structure-state"><summary><span><strong>${escapeHtml(state.nombre)}</strong>${userLabel(state)}</span>${editButton(state)}</summary><div class="structure-children">${municipalityRows(state)}</div></details>`
   ).join("");
-  const national = territories.find(unit => unit.nivel === "nacional");
-  tree.innerHTML = `${national ? `<div class="structure-row structure-national"><span><strong>${escapeHtml(national.nombre)} · Nacional</strong>${userLabel(national)}</span>${editButton(national)}</div>` : ""}
-    <h3>Estados y municipios</h3>${stateRows || '<div class="empty-state">Esta base de datos aún no tiene estados ni municipios cargados. Ejecuta <code>php scripts/seed_territories.php</code> en la carpeta del proyecto del servidor y vuelve a cargar esta sección.</div>'}`;
+  const parishTotal = units.filter(unit => unit.nivel === "parroquial").length;
+  tree.innerHTML = `${national ? `<div class="structure-row structure-national"><span><strong>${escapeHtml(org?.nombre || "")} · Nacional</strong>${userLabel(national)}</span>${editButton(national)}</div>` : ""}
+    <h3>Estados, municipios y parroquias${parishTotal ? ` <small>${parishTotal} parroquias cargadas</small>` : ""}</h3>${stateRows || '<div class="empty-state">La base de datos aún no tiene estados ni municipios. Ejecuta la migración <code>20261128_estructura_territorial.sql</code> y vuelve a cargar esta sección.</div>'}`;
+  const slots = units.filter(unit => ["nacional", "estadal", "municipal", "parroquial"].includes(unit.nivel));
+  const assigned = slots.filter(unit => unit.usuario_id).length;
+  document.getElementById("structure-org-summary").textContent = `${assigned} de ${slots.length} unidades con movilizador asignado`;
+}
+
+function showStructureOrganization(orgId) {
+  activeStructureOrgId = orgId;
+  const org = activeStructureOrg();
+  const orgsView = document.getElementById("structure-orgs-view");
+  const orgView = document.getElementById("structure-org-view");
+  orgsView.hidden = Boolean(org);
+  orgView.hidden = !org;
+  document.getElementById("structure-form").hidden = true;
+  if (org) {
+    orgView.style.setProperty("--org", structureOrgColor(org));
+    document.getElementById("structure-org-title").textContent = org.nombre;
+    renderStructureTree();
+    populateStructureUnitSelect();
+  } else {
+    renderStructureOrganizations();
+  }
+  window.scrollTo({ top: 0 });
 }
 
 function structureMobilizerName(unit) {
@@ -1934,13 +2020,13 @@ function structureManagerCard(unit, level, territoryName, emptyMessage) {
 
 function buildStructurePresentation() {
   const municipalitiesByState = new Map();
-  territories.filter(unit => unit.nivel === "municipal").forEach(municipality => {
+  structureUnits().filter(unit => unit.nivel === "municipal").forEach(municipality => {
     const key = String(municipality.padre_id ?? "");
     if (!municipalitiesByState.has(key)) municipalitiesByState.set(key, []);
     municipalitiesByState.get(key).push(municipality);
   });
-  const national = territories.find(unit => unit.nivel === "nacional");
-  const states = territories.filter(unit => unit.nivel === "estadal");
+  const national = structureUnits().find(unit => unit.nivel === "nacional");
+  const states = structureUnits().filter(unit => unit.nivel === "estadal");
   const nationalCard = structureManagerCard(
     national,
     "Nivel nacional",
@@ -1976,7 +2062,7 @@ function buildStructurePresentation() {
     ? ""
     : '<div class="print-structure-empty">No hay estados registrados en la estructura territorial.</div>';
   const generatedAt = new Intl.DateTimeFormat("es", { dateStyle: "long", timeStyle: "short" }).format(new Date());
-  return `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Estructura territorial ORA</title>
+  return `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Estructura · ${escapeHtml(activeStructureOrg()?.nombre || "ORA")}</title>
     <style>
       @page{size:A4 landscape;margin:12mm}*{box-sizing:border-box}body{margin:0;color:#17252d;background:#fff;font:10px/1.4 Arial,Helvetica,sans-serif}.print-structure-toolbar{position:sticky;top:0;z-index:2;display:flex;justify-content:center;gap:8px;padding:10px;background:#17252d}.print-structure-toolbar button{min-height:36px;padding:0 14px;border:0;border-radius:6px;background:#1681b4;color:#fff;font-weight:700;cursor:pointer}.print-structure-toolbar .close{background:#fff;color:#17252d}.print-structure-document{max-width:1400px;margin:20px auto;padding:0 22px}.print-structure-header{display:flex;align-items:center;justify-content:space-between;gap:16px;padding-bottom:12px;border-bottom:3px solid #1681b4}.print-structure-brand{display:flex;align-items:center;gap:13px}.print-structure-brand img{width:75px;height:44px;object-fit:contain}.print-structure-brand p{margin:0 0 3px;color:#1681b4;font-size:8px;font-weight:800;letter-spacing:1px}.print-structure-brand h1{margin:0;font-size:22px}.print-structure-date{color:#657781;font-size:9px;text-align:right}.print-structure-root{position:relative;display:flex;justify-content:center;padding:17px 0 27px}.print-structure-root:after{position:absolute;bottom:0;left:50%;height:19px;border-left:2px solid #8fc9df;content:""}.print-structure-manager{display:grid;min-width:0;gap:3px;padding:8px 9px;border:1px solid #cfe5ef;border-left:3px solid #1681b4;border-radius:6px;background:#f3faff;break-inside:avoid}.print-structure-root .print-structure-manager{width:min(300px,100%);padding:11px 14px;text-align:center;border-left:1px solid #cfe5ef;border-top:3px solid #1681b4}.print-structure-level{color:#0c638c;font-size:7px;font-weight:800;letter-spacing:.65px;text-transform:uppercase}.print-structure-manager strong{font-size:10px;overflow-wrap:anywhere}.print-structure-manager>span:last-of-type{color:#53636b;font-size:8px;overflow-wrap:anywhere}.print-structure-manager.unassigned{border-color:#eed9a9;border-left-color:#c08322;background:#fffaf0}.print-structure-manager.unassigned .print-structure-level{color:#8b611c}.print-structure-disabled{color:#a83e38;font-size:7px;font-weight:700}.print-structure-state-grid{position:relative;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));column-gap:13px;row-gap:14px;padding-top:20px}.print-structure-state-grid:before{position:absolute;top:0;right:24%;left:24%;border-top:2px solid #8fc9df;content:""}.print-structure-state{position:relative;min-width:0;padding:9px;border:1px solid #dce8ed;border-radius:8px;background:#fff;break-inside:avoid}.print-structure-state:before{position:absolute;top:-21px;left:50%;height:20px;border-left:2px solid #8fc9df;content:""}.print-structure-children{position:relative;margin:10px 0 0 8px;padding:8px 0 0 11px;border-left:1px solid #c9dde5}.print-structure-children:before{position:absolute;top:0;left:-1px;width:10px;border-top:1px solid #c9dde5;content:""}.print-structure-children-label{display:block;margin:0 0 6px;color:#52636d;font-size:7px;font-weight:800;letter-spacing:.4px;text-transform:uppercase}.print-structure-municipalities{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px;margin:0;padding:0;list-style:none}.print-structure-municipalities li{min-width:0}.print-structure-municipalities .print-structure-manager{height:100%;padding:5px 6px;gap:2px;border-radius:4px}.print-structure-municipalities .print-structure-manager strong{font-size:8px}.print-structure-municipalities .print-structure-manager>span:last-of-type{font-size:7px}.print-structure-municipalities .print-structure-level{font-size:6px}.print-structure-empty{margin:5px 0 0;padding:7px;border:1px dashed #e6d3aa;border-radius:5px;background:#fffaf0;color:#805b21;font-size:8px}.print-structure-footer{margin:14px 0 0;padding-top:7px;border-top:1px solid #deebf1;color:#657781;font-size:8px;text-align:center}
       @media screen{body{background:#eaf1f4}.print-structure-document{padding:22px;background:#fff;box-shadow:0 5px 30px #17252d18}}
@@ -1986,7 +2072,7 @@ function buildStructurePresentation() {
     </style></head><body>
     <div class="print-structure-toolbar"><button id="print-structure-button" type="button">Imprimir Estructura</button><button id="close-structure-button" class="close" type="button">Cerrar</button></div>
     <main class="print-structure-document">
-      <header class="print-structure-header"><div class="print-structure-brand"><img src="${escapeHtml(new URL("assets/img/ora-logo.png", window.location.href).href)}" alt="ORA"><div><p>ORGANIZACIÓN RENOVADORA AUTÉNTICA</p><h1>Estructura de movilizadores</h1></div></div><div class="print-structure-date">Generada el<br><strong>${escapeHtml(generatedAt)}</strong></div></header>
+      <header class="print-structure-header"><div class="print-structure-brand"><img src="${escapeHtml(new URL("assets/img/ora-logo.png", window.location.href).href)}" alt="ORA"><div><p>${escapeHtml(activeStructureOrg()?.nombre || "ORGANIZACIÓN RENOVADORA AUTÉNTICA")}</p><h1>Estructura de movilizadores</h1></div></div><div class="print-structure-date">Generada el<br><strong>${escapeHtml(generatedAt)}</strong></div></header>
       <section class="print-structure-root">${nationalCard}</section>
       <section class="print-structure-state-grid">${stateBranches || noStates}</section>
       <footer class="print-structure-footer">Jerarquía territorial: nivel nacional → responsables estadales → responsables municipales. Los niveles sin cuenta asignada se identifican en el árbol.</footer>
@@ -2011,7 +2097,9 @@ function populateStructureUnitSelect() {
   const national = territories.filter(unit => unit.nivel === "nacional");
   const states = territories.filter(unit => unit.nivel === "estadal");
   const municipalities = territories.filter(unit => unit.nivel === "municipal");
+  const parishes = territories.filter(unit => unit.nivel === "parroquial");
   const stateById = new Map(states.map(state => [Number(state.id), state]));
+  const municipalityById = new Map(municipalities.map(unit => [Number(unit.id), unit]));
   select.innerHTML = '<option value="">Selecciona una unidad</option>';
   if (national.length) {
     select.insertAdjacentHTML("beforeend", `<optgroup label="Nacional">${national.map(unit =>
@@ -2024,6 +2112,13 @@ function populateStructureUnitSelect() {
   select.insertAdjacentHTML("beforeend", `<optgroup label="Municipios">${municipalities.map(unit =>
     `<option value="${Number(unit.id)}">${escapeHtml(stateById.get(Number(unit.padre_id))?.nombre || "")} · ${escapeHtml(unit.nombre)}</option>`
   ).join("")}</optgroup>`);
+  if (parishes.length) {
+    select.insertAdjacentHTML("beforeend", `<optgroup label="Parroquias">${parishes.map(unit => {
+      const municipality = municipalityById.get(Number(unit.padre_id));
+      const stateName = stateById.get(Number(municipality?.padre_id))?.nombre || "";
+      return `<option value="${Number(unit.id)}">${escapeHtml(stateName)} · ${escapeHtml(municipality?.nombre || "")} · ${escapeHtml(unit.nombre)}</option>`;
+    }).join("")}</optgroup>`);
+  }
 }
 
 function populateEventStates() {
@@ -2048,23 +2143,88 @@ function populateEventMunicipalities() {
 async function loadStructure() {
   const result = await request("structure");
   territories = result.territories;
-  renderStructureTree();
-  populateStructureUnitSelect();
+  structureOrganizations = result.organizations || [];
+  structureAssignments = result.assignments || [];
   populateEventStates();
+  if (activeStructureOrg()) showStructureOrganization(activeStructureOrgId);
+  else {
+    activeStructureOrgId = null;
+    showStructureOrganization(null);
+  }
+}
+
+function parseParishCsv(text) {
+  const clean = text.replace(/^\uFEFF/, "");
+  const delimiter = (clean.split("\n")[0].match(/;/g) || []).length > (clean.split("\n")[0].match(/,/g) || []).length ? ";" : ",";
+  const rows = [];
+  let row = [];
+  let value = "";
+  let quoted = false;
+  for (let index = 0; index < clean.length; index += 1) {
+    const char = clean[index];
+    if (quoted) {
+      if (char === '"' && clean[index + 1] === '"') { value += '"'; index += 1; }
+      else if (char === '"') quoted = false;
+      else value += char;
+    } else if (char === '"') quoted = true;
+    else if (char === delimiter) { row.push(value.trim()); value = ""; }
+    else if (char === "\n" || char === "\r") {
+      if (char === "\r" && clean[index + 1] === "\n") index += 1;
+      row.push(value.trim());
+      value = "";
+      if (row.some(Boolean)) rows.push(row);
+      row = [];
+    } else value += char;
+  }
+  row.push(value.trim());
+  if (row.some(Boolean)) rows.push(row);
+  if (rows.length && /parroquia/i.test(rows[0].join(" ")) && /municipio/i.test(rows[0].join(" "))) rows.shift();
+  return rows.filter(item => item.length >= 3).map(item => ({ estado: item[0], municipio: item[1], parroquia: item[2] }));
+}
+
+async function importParishes() {
+  const message = document.getElementById("parish-import-message");
+  const file = document.getElementById("parish-import-file").files[0];
+  if (!file) { showFormMessage(message, "Selecciona un archivo CSV."); return; }
+  const button = document.getElementById("parish-import-button");
+  button.disabled = true;
+  try {
+    const rows = parseParishCsv(await file.text());
+    if (!rows.length) throw new Error("No se encontraron filas con estado, municipio y parroquia.");
+    let created = 0;
+    let skipped = 0;
+    let unmatched = 0;
+    const examples = [];
+    for (let start = 0; start < rows.length; start += 500) {
+      showFormMessage(message, `Importando ${Math.min(start + 500, rows.length)} de ${rows.length}…`, false);
+      const result = await request("parishes-import", { method: "POST", data: { rows: rows.slice(start, start + 500) } });
+      created += result.created;
+      skipped += result.skipped;
+      unmatched += result.unmatchedCount;
+      examples.push(...result.unmatched);
+    }
+    showFormMessage(message, `Listo: ${created} parroquias nuevas, ${skipped} ya existían${unmatched ? `, ${unmatched} filas sin coincidencia (${examples.slice(0, 3).join("; ")}${unmatched > 3 ? "…" : ""})` : ""}.`, !created && unmatched > 0);
+    await loadStructure();
+  } catch (error) {
+    showFormMessage(message, error.message);
+  } finally {
+    button.disabled = false;
+  }
 }
 
 function resetStructureForm() {
   const form = document.getElementById("structure-form");
   form.reset();
   form.elements.namedItem("userId").value = "";
-  document.getElementById("structure-form-title").textContent = "Nueva cuenta de movilizador";
+  form.elements.namedItem("organizationId").value = activeStructureOrgId || "";
+  document.getElementById("structure-form-title").textContent = `Nueva cuenta · ${activeStructureOrg()?.nombre || "movilizador"}`;
   document.getElementById("structure-message").textContent = "";
   document.getElementById("structure-message").classList.remove("visible");
   form.hidden = false;
 }
 
 function editStructureUser(unitId) {
-  const unit = territories.find(item => Number(item.id) === unitId);
+  const unit = structureUnits().find(item => Number(item.id) === unitId);
   if (!unit) return;
   resetStructureForm();
   const form = document.getElementById("structure-form");
@@ -2103,6 +2263,7 @@ async function saveStructureUser(event) {
         phone: data.get("phone"),
         email: data.get("email"),
         territoryId: Number(data.get("territoryId")),
+        organizationId: Number(data.get("organizationId")),
         active: data.get("active") === "1",
         password
       }
@@ -2473,8 +2634,9 @@ function renderMobilizerAssignment(assignment, event) {
           </select>
         </label>
         <div data-vehicle-section="${assignmentId}" ${requiresTransport ? "" : "hidden"}>
-          <div class="route-heading"><div><h3>Vehículos</h3><p>Registra cada vehículo y agrega otra fila con +.</p></div></div>
-          <div class="vehicle-list" data-vehicle-list="${assignmentId}"></div>
+          <div class="route-heading"><div><h3>Vehículos</h3><p>Registra cada vehículo, cuántas personas van en él, y agrega otra fila con +.</p></div></div>
+          <div class="vehicle-list" data-vehicle-list="${assignmentId}" data-planned="${Number(assignment.personas_planificadas) || 0}"></div>
+          <p class="wizard-help vehicle-people-total" data-vehicle-people-total></p>
           <p class="wizard-help" data-photo-status="${assignmentId}" data-saved-count="${vehiclePhotos}">${vehiclePhotos} evidencia(s) de vehículo guardada(s). Ingresa la placa manualmente y agrega su foto como evidencia.</p>
         </div>
         <div class="route-picker-grid">
@@ -2505,7 +2667,7 @@ function renderMobilizerAssignment(assignment, event) {
     </section>`;
   } else if (stage === 3) {
     const vehiclesSummary = vehicles.length
-      ? vehicles.map(vehicle => `${escapeHtml(vehicle.type)} × ${Number(vehicle.count)}${vehicle.plates ? ` · placas: ${escapeHtml(vehicle.plates)}` : ""}`).join("<br>")
+      ? vehicles.map(vehicle => `${escapeHtml(vehicle.type)} × ${Number(vehicle.count)}${vehicle.plates ? ` · placas: ${escapeHtml(vehicle.plates)}` : ""}${Number(vehicle.people) ? ` · ${Number(vehicle.people)} persona(s)` : ""}`).join("<br>")
       : "Sin vehículo";
     stepContent = `<section class="wizard-stage">
       <h3>3. Revisa y confirma los datos</h3>
@@ -2942,6 +3104,7 @@ function addWorkflowVehicleRow(container, vehicle = {}, photoCounts = {}) {
     </label>
     <input type="hidden" name="vehicleCount" value="${Number(vehicle.count) || 1}">
     <label class="field vehicle-plates">Placa<input name="vehiclePlates" maxlength="160" value="${escapeHtml(vehicle.plates || "")}" placeholder="ABC123"></label>
+    <label class="field vehicle-people">Personas<input name="vehiclePeople" type="number" inputmode="numeric" min="1" max="100000" value="${Number(vehicle.people) > 0 ? Number(vehicle.people) : ""}" placeholder="0" aria-label="Personas que van en este vehículo"></label>
     <label class="camera-button vehicle-photo-button">▧ Foto
       <input type="file" accept="image/*" capture="environment" multiple data-workflow-photo data-photo-category="vehiculo" data-vehicle-id="${row.dataset.vehicleId}" data-assignment-id="${container.closest("[data-assignment-id]")?.dataset.assignmentId || ""}">
     </label>
@@ -2953,9 +3116,36 @@ function addWorkflowVehicleRow(container, vehicle = {}, photoCounts = {}) {
   row.querySelector('[name="vehicleType"]').value = vehicle.type || "Autobús";
   row.querySelector(".remove-row").addEventListener("click", () => {
     if (container.childElementCount > 1) row.remove();
-    else row.querySelector('[name="vehiclePlates"]').value = "";
+    else {
+      row.querySelector('[name="vehiclePlates"]').value = "";
+      row.querySelector('[name="vehiclePeople"]').value = "";
+    }
+    updateVehiclePeopleTotal(container);
   });
   container.appendChild(row);
+  updateVehiclePeopleTotal(container);
+}
+
+// Muestra cuántas personas ya quedaron repartidas en los vehículos frente a las planificadas.
+function updateVehiclePeopleTotal(container) {
+  const section = container.closest("[data-vehicle-section]");
+  const output = section?.querySelector("[data-vehicle-people-total]");
+  if (!output) return;
+  const total = [...container.querySelectorAll('[name="vehiclePeople"]')]
+    .reduce((sum, input) => sum + (Number(input.value) || 0), 0);
+  const planned = Number(container.dataset.planned) || 0;
+  output.classList.remove("ok", "over");
+  if (!planned) {
+    output.textContent = `${total} persona(s) repartidas en los vehículos.`;
+  } else if (total === planned) {
+    output.textContent = `${total} de ${planned} personas repartidas en los vehículos. ✓`;
+    output.classList.add("ok");
+  } else if (total > planned) {
+    output.textContent = `${total} personas en vehículos, pero registraste ${planned}. Revisa las cantidades.`;
+    output.classList.add("over");
+  } else {
+    output.textContent = `${total} de ${planned} personas repartidas en los vehículos.`;
+  }
 }
 
 function initializeVehicleRows(assignment) {
@@ -2974,17 +3164,17 @@ function workflowNotice(message, isError = true) {
 }
 
 async function compressPhoto(file) {
-  // Reduce fotos grandes del teléfono antes de subirlas (máx. 2200 px, JPEG).
+  // Reduce las fotos en el teléfono antes de subirlas: máx. 1600 px, JPEG calidad 0.78 (≈ 200-400 KB).
   try {
-    if (!/^image\/(jpeg|png|webp)$/.test(file.type) || file.size < 1.5 * 1024 * 1024) return file;
-    const bitmap = await createImageBitmap(file);
-    const scale = Math.min(1, 2200 / Math.max(bitmap.width, bitmap.height));
+    if (!/^image\/(jpeg|png|webp)$/.test(file.type) || file.size < 350 * 1024) return file;
+    const bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });
+    const scale = Math.min(1, 1600 / Math.max(bitmap.width, bitmap.height));
     const canvas = document.createElement("canvas");
     canvas.width = Math.round(bitmap.width * scale);
     canvas.height = Math.round(bitmap.height * scale);
     canvas.getContext("2d").drawImage(bitmap, 0, 0, canvas.width, canvas.height);
     bitmap.close?.();
-    const blob = await new Promise(resolve => canvas.toBlob(resolve, "image/jpeg", 0.85));
+    const blob = await new Promise(resolve => canvas.toBlob(resolve, "image/jpeg", 0.78));
     if (!blob || blob.size >= file.size) return file;
     return new File([blob], file.name.replace(/\.[^.]+$/, "") + ".jpg", { type: "image/jpeg" });
   } catch (error) {
@@ -2995,14 +3185,17 @@ async function compressPhoto(file) {
 async function uploadWorkflowPhotos(input, files) {
   if (!files.length) return;
   if (files.length > 5) throw new Error("Puedes subir hasta 5 fotos por tanda. Selecciona menos imágenes.");
-  const form = new FormData();
-  form.append("assignmentId", input.dataset.assignmentId);
-  form.append("type", input.dataset.photoCategory);
-  if (input.dataset.photoCategory === "vehiculo") {
-    form.append("vehicleId", input.dataset.vehicleId || "");
-  }
-  (await Promise.all(files.map(compressPhoto))).forEach(file => form.append("photos[]", file));
-  await request("photo-upload", { method: "POST", form });
+  // Cada foto se comprime y se envía en su propia solicitud, todas en paralelo.
+  await Promise.all(files.map(async original => {
+    const form = new FormData();
+    form.append("assignmentId", input.dataset.assignmentId);
+    form.append("type", input.dataset.photoCategory);
+    if (input.dataset.photoCategory === "vehiculo") {
+      form.append("vehicleId", input.dataset.vehicleId || "");
+    }
+    form.append("photos[]", await compressPhoto(original));
+    await request("photo-upload", { method: "POST", form });
+  }));
   const status = input.dataset.photoCategory === "vehiculo"
     ? input.closest(".vehicle-row")?.querySelector("[data-vehicle-photo-status]")
     : document.querySelector(`[data-photo-status="${input.dataset.assignmentId}"]`);
@@ -3096,9 +3289,11 @@ async function updateAssignment(form) {
       id: row.dataset.vehicleId,
       type: row.querySelector('[name="vehicleType"]').value,
       count: Number(row.querySelector('[name="vehicleCount"]').value),
-      plates: row.querySelector('[name="vehiclePlates"]').value.trim()
+      plates: row.querySelector('[name="vehiclePlates"]').value.trim(),
+      people: Number(row.querySelector('[name="vehiclePeople"]').value) || 0
     }));
     if (!payload.requiresTransport) payload.vehicles = [];
+    else if (payload.vehicles.some(vehicle => vehicle.people < 1)) throw new Error("Indica cuántas personas van en cada vehículo.");
   } else if (step === "confirm") {
     payload.step = "confirm";
   } else {
@@ -3757,6 +3952,15 @@ document.addEventListener("keydown", event => {
   if (event.key === "Escape" && trackingPresentationActive) setTrackingPresentation(false);
 });
 document.getElementById("show-structure-button").addEventListener("click", showStructurePresentation);
+document.addEventListener("input", event => {
+  if (event.target.matches?.('[name="vehiclePeople"]')) updateVehiclePeopleTotal(event.target.closest(".vehicle-list"));
+});
+document.getElementById("structure-back").addEventListener("click", () => showStructureOrganization(null));
+document.getElementById("parish-import-button").addEventListener("click", () => void importParishes());
+document.getElementById("structure-orgs").addEventListener("click", event => {
+  const card = event.target.closest("[data-open-org]");
+  if (card) showStructureOrganization(Number(card.dataset.openOrg));
+});
 document.getElementById("new-structure-user").addEventListener("click", resetStructureForm);
 document.getElementById("cancel-structure-user").addEventListener("click", () => {
   document.getElementById("structure-form").hidden = true;

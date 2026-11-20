@@ -23,6 +23,17 @@ CREATE TABLE IF NOT EXISTS roles_sistema_modulos (
     ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB;
 
+CREATE TABLE IF NOT EXISTS organizaciones (
+  id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  codigo VARCHAR(40) NOT NULL,
+  nombre VARCHAR(120) NOT NULL,
+  orden SMALLINT UNSIGNED NOT NULL DEFAULT 0,
+  activo TINYINT(1) NOT NULL DEFAULT 1,
+  creado_en TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_organizaciones_codigo (codigo)
+) ENGINE=InnoDB;
+
 CREATE TABLE IF NOT EXISTS usuarios (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   nombre VARCHAR(140) NOT NULL,
@@ -33,6 +44,7 @@ CREATE TABLE IF NOT EXISTS usuarios (
   rol ENUM('admin', 'responsable') NOT NULL DEFAULT 'responsable',
   rol_sistema_id BIGINT UNSIGNED NULL,
   unidad_territorial_id BIGINT UNSIGNED NULL,
+  organizacion_id INT UNSIGNED NULL,
   activo TINYINT(1) NOT NULL DEFAULT 1,
   creado_en TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   actualizado_en TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -40,7 +52,7 @@ CREATE TABLE IF NOT EXISTS usuarios (
   UNIQUE KEY uq_usuarios_nombre_usuario (nombre_usuario),
   UNIQUE KEY uq_usuarios_correo (correo),
   UNIQUE KEY uq_usuarios_telefono (telefono),
-  UNIQUE KEY uq_usuarios_unidad_territorial (unidad_territorial_id),
+  UNIQUE KEY uq_usuarios_unidad_organizacion (unidad_territorial_id, organizacion_id),
   KEY idx_usuarios_rol_activo (rol, activo),
   CONSTRAINT fk_usuarios_rol_sistema
     FOREIGN KEY (rol_sistema_id) REFERENCES roles_sistema (id)
@@ -51,7 +63,7 @@ CREATE TABLE IF NOT EXISTS unidades_territoriales (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   codigo VARCHAR(10) NOT NULL,
   nombre VARCHAR(120) NOT NULL,
-  nivel ENUM('nacional', 'estadal', 'municipal') NOT NULL,
+  nivel ENUM('nacional', 'estadal', 'municipal', 'parroquial') NOT NULL,
   padre_id BIGINT UNSIGNED NULL,
   activo TINYINT(1) NOT NULL DEFAULT 1,
   creado_en TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -67,6 +79,9 @@ CREATE TABLE IF NOT EXISTS unidades_territoriales (
 ALTER TABLE usuarios
   ADD CONSTRAINT fk_usuarios_unidad_territorial
     FOREIGN KEY (unidad_territorial_id) REFERENCES unidades_territoriales (id)
+    ON DELETE RESTRICT ON UPDATE CASCADE,
+  ADD CONSTRAINT fk_usuarios_organizacion
+    FOREIGN KEY (organizacion_id) REFERENCES organizaciones (id)
     ON DELETE RESTRICT ON UPDATE CASCADE;
 
 CREATE TABLE IF NOT EXISTS intentos_login (
