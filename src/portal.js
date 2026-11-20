@@ -787,69 +787,82 @@ async function captureLiveMapImage({ event, live = [] }) {
     .filter(point => Number.isFinite(point[0]) && Number.isFinite(point[1]));
   const destination = [Number(event.punto_llegada_lng), Number(event.punto_llegada_lat)];
   const hasDestination = destination.every(Number.isFinite) && event.punto_llegada_lat !== null && event.punto_llegada_lng !== null;
-  if (!points.length) return null;
+  if (!points.length) return { image: null, error: "" };
+  // Contenedor invisible pero dentro de la pantalla: algunos navegadores no dibujan mapas fuera de ella
   const host = document.createElement("div");
-  host.style.cssText = "position:fixed;left:-10000px;top:0;width:1200px;height:330px;pointer-events:none";
+  host.style.cssText = "position:fixed;left:0;top:0;width:1200px;height:330px;opacity:0;pointer-events:none;z-index:-1";
   document.body.appendChild(host);
   let map = null;
+  let firstMapError = "";
+  const waitFor = (target, eventName, ms) => new Promise(resolve => {
+    const timer = window.setTimeout(() => resolve(false), ms);
+    target.once(eventName, () => { window.clearTimeout(timer); resolve(true); });
+  });
   try {
     map = createMap(host, points[0], 12, {
       interactive: false,
       attributionControl: false,
-      preserveDrawingBuffer: true,
-      fadeDuration: 0
+      fadeDuration: 0,
+      canvasContextAttributes: { preserveDrawingBuffer: true }
     });
+    map.on("error", event => { if (!firstMapError) firstMapError = event?.error?.message || "error del mapa"; });
+    const loaded = await waitFor(map, "load", 25000);
+    if (!loaded && !map.isStyleLoaded()) throw new Error(firstMapError || "El mapa no terminó de cargar.");
+
     const colors = { moving: "#1681b4", arrived: "#1f9d6b", lost: "#e0a100" };
-    await new Promise((resolve, reject) => {
-      const timer = window.setTimeout(() => reject(new Error("El mapa tardó demasiado en cargar.")), 20000);
-      map.once("load", () => {
-        const features = live.map(item => ({
-          type: "Feature",
-          properties: { color: colors[liveMobilizerState(item)] },
-          geometry: { type: "Point", coordinates: [Number(item.longitude), Number(item.latitude)] }
-        }));
-        // Rutas ideales: finas y semitransparentes para que no tapen el mapa ni se tapen entre sí
-        const routeFeatures = live.map(item => {
-          const coordinates = parseTrackingRoute(item.ruta_personal_geojson);
-          return coordinates.length > 1
-            ? { type: "Feature", properties: { color: colors[liveMobilizerState(item)] }, geometry: { type: "LineString", coordinates } }
-            : null;
-        }).filter(Boolean);
-        if (!routeFeatures.length) {
-          const eventRoute = parseTrackingRoute(event.ruta_ideal_geojson);
-          if (eventRoute.length > 1) routeFeatures.push({ type: "Feature", properties: { color: "#5a6b75" }, geometry: { type: "LineString", coordinates: eventRoute } });
-        }
-        routeFeatures.forEach(feature => points.push(...feature.geometry.coordinates));
-        map.addSource("report-routes", { type: "geojson", data: { type: "FeatureCollection", features: routeFeatures } });
-        map.addLayer({ id: "report-routes-line", type: "line", source: "report-routes",
-          layout: { "line-cap": "round", "line-join": "round" },
-          paint: { "line-color": ["get", "color"], "line-width": 2, "line-opacity": 0.8 } });
-        map.addSource("report-live", { type: "geojson", data: { type: "FeatureCollection", features } });
-        map.addLayer({ id: "report-live-halo", type: "circle", source: "report-live",
-          paint: { "circle-radius": 10, "circle-color": ["get", "color"], "circle-opacity": 0.25 } });
-        map.addLayer({ id: "report-live-dot", type: "circle", source: "report-live",
-          paint: { "circle-radius": 6, "circle-color": ["get", "color"], "circle-stroke-color": "#ffffff", "circle-stroke-width": 2 } });
-        if (hasDestination) {
-          map.addSource("report-destination", { type: "geojson", data: { type: "Feature", properties: {},
-            geometry: { type: "Point", coordinates: destination } } });
-          map.addLayer({ id: "report-destination-halo", type: "circle", source: "report-destination",
-            paint: { "circle-radius": 15, "circle-color": "#e5322d", "circle-opacity": 0.25 } });
-          map.addLayer({ id: "report-destination-dot", type: "circle", source: "report-destination",
-            paint: { "circle-radius": 8, "circle-color": "#e5322d", "circle-stroke-color": "#ffffff", "circle-stroke-width": 2 } });
-        }
-        const bounds = new maplibregl.LngLatBounds(points[0], points[0]);
-        points.slice(1).forEach(point => bounds.extend(point));
-        if (hasDestination) bounds.extend(destination);
-        map.fitBounds(bounds, { padding: 70, maxZoom: 15, duration: 0 });
-        map.once("idle", () => { window.clearTimeout(timer); resolve(); });
-        map.triggerRepaint();
+    // Rutas ideales: finas y semitransparentes para que no tapen el mapa ni se tapen entre sí
+    const routeFeatures = live.map(item => {
+      const coordinates = parseTrackingRoute(item.ruta_personal_geojson);
+      return coordinates.length > 1
+        ? { type: "Feature", properties: { color: colors[liveMobilizerState(item)] }, geometry: { type: "LineString", coordinates } }
+        : null;
+    }).filter(Boolean);
+    if (!routeFeatures.length) {
+      const eventRoute = parseTrackingRoute(event.ruta_ideal_geojson);
+      if (eventRoute.length > 1) routeFeatures.push({ type: "Feature", properties: { color: "#5a6b75" }, geometry: { type: "LineString", coordinates: eventRoute } });
+    }
+    const bounds = new maplibregl.LngLatBounds(points[0], points[0]);
+    points.slice(1).forEach(point => bounds.extend(point));
+    routeFeatures.forEach(feature => feature.geometry.coordinates.forEach(point => bounds.extend(point)));
+    if (hasDestination) bounds.extend(destination);
+
+    map.addSource("report-routes", { type: "geojson", data: { type: "FeatureCollection", features: routeFeatures } });
+    map.addLayer({ id: "report-routes-line", type: "line", source: "report-routes",
+      layout: { "line-cap": "round", "line-join": "round" },
+      paint: { "line-color": ["get", "color"], "line-width": 2, "line-opacity": 0.8 } });
+    const dots = live.map(item => ({
+      type: "Feature",
+      properties: { color: colors[liveMobilizerState(item)] },
+      geometry: { type: "Point", coordinates: [Number(item.longitude), Number(item.latitude)] }
+    }));
+    map.addSource("report-live", { type: "geojson", data: { type: "FeatureCollection", features: dots } });
+    map.addLayer({ id: "report-live-halo", type: "circle", source: "report-live",
+      paint: { "circle-radius": 10, "circle-color": ["get", "color"], "circle-opacity": 0.25 } });
+    map.addLayer({ id: "report-live-dot", type: "circle", source: "report-live",
+      paint: { "circle-radius": 6, "circle-color": ["get", "color"], "circle-stroke-color": "#ffffff", "circle-stroke-width": 2 } });
+    if (hasDestination) {
+      map.addSource("report-destination", { type: "geojson", data: { type: "Feature", properties: {},
+        geometry: { type: "Point", coordinates: destination } } });
+      map.addLayer({ id: "report-destination-halo", type: "circle", source: "report-destination",
+        paint: { "circle-radius": 15, "circle-color": "#e5322d", "circle-opacity": 0.25 } });
+      map.addLayer({ id: "report-destination-dot", type: "circle", source: "report-destination",
+        paint: { "circle-radius": 8, "circle-color": "#e5322d", "circle-stroke-color": "#ffffff", "circle-stroke-width": 2 } });
+    }
+    map.fitBounds(bounds, { padding: 70, maxZoom: 15, duration: 0 });
+    // Si el mapa tarda en quedar quieto, se toma la captura igual con lo que ya se dibujó
+    await waitFor(map, "idle", 15000);
+    // La captura se lee justo después de un dibujado, cuando el lienzo todavía tiene la imagen
+    const dataUrl = await new Promise((resolve, reject) => {
+      map.once("render", () => {
+        try { resolve(map.getCanvas().toDataURL("image/jpeg", 0.9)); } catch (error) { reject(error); }
       });
-      map.once("error", () => { /* un mosaico que falle no debe cancelar la captura */ });
+      map.triggerRepaint();
     });
-    return map.getCanvas().toDataURL("image/jpeg", 0.9);
+    if (!dataUrl || dataUrl.length < 5000) throw new Error("La imagen del mapa salió vacía.");
+    return { image: dataUrl, error: "" };
   } catch (error) {
-    console.warn("No se pudo capturar el mapa en vivo.", error);
-    return null;
+    console.warn("No se pudo capturar el mapa en vivo.", error, firstMapError);
+    return { image: null, error: String(error?.message || firstMapError || error) };
   } finally {
     if (map) map.remove();
     host.remove();
@@ -872,7 +885,7 @@ function buildStateBreakdown(assignments, reportedPeople) {
   });
 }
 
-function buildConciseEventReport({ event, assignments, live = [] }, liveImage = null) {
+function buildConciseEventReport({ event, assignments, live = [] }, liveImage = null, captureError = "") {
   const registeredMobilizers = assignments.length;
   const estimatedPeopleValue = event.personas_estimadas_movilizar;
   const hasEstimatedPeople = estimatedPeopleValue !== null && estimatedPeopleValue !== "" &&
@@ -921,7 +934,7 @@ function buildConciseEventReport({ event, assignments, live = [] }, liveImage = 
   const livePanel = liveImage
     ? `<figure class="report-map"><img src="${liveImage}" alt="Captura del mapa con la ubicación actual de los movilizadores"><figcaption>Captura tomada el ${escapeHtml(captureMoment)} · Mapa © OpenFreeMap © colaboradores de OpenStreetMap</figcaption></figure>
       <div class="report-map-legend"><span><i style="background:#1681b4"></i>En camino <strong>${formatCount(liveCounts.moving)}</strong></span><span><i style="background:#1f9d6b"></i>Ya llegaron <strong>${formatCount(liveCounts.arrived)}</strong></span><span><i style="background:#e0a100"></i>Sin señal reciente <strong>${formatCount(liveCounts.lost)}</strong></span><span><i style="background:#e5322d"></i>Punto de llegada</span><span class="report-map-note">Las líneas finas son la ruta ideal de cada movilizador.</span></div>`
-    : `<p class="report-empty">${live.length ? "No se pudo generar la captura del mapa en este momento." : "Todavía no hay movilizadores en camino o llegados para mostrar en el mapa."}</p>`;
+    : `<p class="report-empty">${live.length ? "No se pudo generar la captura del mapa en este momento." + (captureError ? ` <small style="color:#9aa8af">(${escapeHtml(captureError)})</small>` : "") : "Todavía no hay movilizadores en camino o llegados para mostrar en el mapa."}</p>`;
   const details = [
     { icon: "date", label: "Fecha del evento", value: eventDate(event.fecha) },
     { icon: "time", label: "Hora de inicio", value: event.hora_inicio ? String(event.hora_inicio).slice(0, 5) : "No especificada" },
@@ -1061,9 +1074,9 @@ async function generateEventReport(eventId, triggerButton, fullSheet = false) {
     const query = { id: eventId };
     if (fullSheet) query.full = "1";
     const report = await request("event-report", { query });
-    const liveImage = fullSheet ? null : await captureLiveMapImage(report);
+    const liveCapture = fullSheet ? { image: null, error: "" } : await captureLiveMapImage(report);
     popup.document.open();
-    popup.document.write(fullSheet ? buildDetailedEventSheet(report) : buildConciseEventReport(report, liveImage));
+    popup.document.write(fullSheet ? buildDetailedEventSheet(report) : buildConciseEventReport(report, liveCapture.image, liveCapture.error));
     popup.document.close();
     popup.document.getElementById("report-print")?.addEventListener("click", () => popup.print());
     popup.document.getElementById("report-close")?.addEventListener("click", () => popup.close());
