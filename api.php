@@ -1404,8 +1404,8 @@ try {
                     if ($type === '' || mb_strlen($type) > 40 || $count === false || $count < 1 || $count > 1000 || mb_strlen($plates) > 160) {
                         respond(['error' => 'Revisa el tipo, la cantidad y las placas de cada vehículo.'], 422);
                     }
-                    if ($people === false || $people < 0 || $people > 100000 || ($required && $people < 1)) {
-                        respond(['error' => 'Indica cuántas personas van en cada vehículo.'], 422);
+                    if ($people === false || $people < 0 || $people > 100000) {
+                        $people = 0;
                     }
                     $vehicleId = trim((string) ($vehicle['id'] ?? ''));
                     if (!preg_match('/^[A-Za-z0-9_-]{1,64}$/', $vehicleId) || isset($vehicleIds[$vehicleId])) {
