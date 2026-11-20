@@ -772,7 +772,91 @@ function buildDetailedEventSheet({ event, assignments }) {
     </main></body></html>`;
 }
 
-function buildConciseEventReport({ event, assignments }) {
+const LIVE_SIGNAL_STALE_SECONDS = 120;
+
+function liveMobilizerState(item) {
+  if (item.llegada_confirmada_en) return "arrived";
+  const age = Number(item.last_seen_age_seconds);
+  return Number.isFinite(age) && age > LIVE_SIGNAL_STALE_SECONDS ? "lost" : "moving";
+}
+
+// Toma una foto real del mapa en este momento (posiciones actuales y destino) para insertarla en el resumen.
+async function captureLiveMapImage({ event, live = [] }) {
+  const points = live
+    .map(item => [Number(item.longitude), Number(item.latitude)])
+    .filter(point => Number.isFinite(point[0]) && Number.isFinite(point[1]));
+  const destination = [Number(event.punto_llegada_lng), Number(event.punto_llegada_lat)];
+  const hasDestination = destination.every(Number.isFinite) && event.punto_llegada_lat !== null && event.punto_llegada_lng !== null;
+  if (!points.length) return null;
+  const host = document.createElement("div");
+  host.style.cssText = "position:fixed;left:-10000px;top:0;width:1200px;height:330px;pointer-events:none";
+  document.body.appendChild(host);
+  let map = null;
+  try {
+    map = createMap(host, points[0], 12, {
+      interactive: false,
+      attributionControl: false,
+      preserveDrawingBuffer: true,
+      fadeDuration: 0
+    });
+    const colors = { moving: "#1681b4", arrived: "#1f9d6b", lost: "#e0a100" };
+    await new Promise((resolve, reject) => {
+      const timer = window.setTimeout(() => reject(new Error("El mapa tardó demasiado en cargar.")), 20000);
+      map.once("load", () => {
+        const features = live.map(item => ({
+          type: "Feature",
+          properties: { color: colors[liveMobilizerState(item)] },
+          geometry: { type: "Point", coordinates: [Number(item.longitude), Number(item.latitude)] }
+        }));
+        map.addSource("report-live", { type: "geojson", data: { type: "FeatureCollection", features } });
+        map.addLayer({ id: "report-live-halo", type: "circle", source: "report-live",
+          paint: { "circle-radius": 14, "circle-color": ["get", "color"], "circle-opacity": 0.25 } });
+        map.addLayer({ id: "report-live-dot", type: "circle", source: "report-live",
+          paint: { "circle-radius": 8, "circle-color": ["get", "color"], "circle-stroke-color": "#ffffff", "circle-stroke-width": 3 } });
+        if (hasDestination) {
+          map.addSource("report-destination", { type: "geojson", data: { type: "Feature", properties: {},
+            geometry: { type: "Point", coordinates: destination } } });
+          map.addLayer({ id: "report-destination-halo", type: "circle", source: "report-destination",
+            paint: { "circle-radius": 20, "circle-color": "#e5322d", "circle-opacity": 0.25 } });
+          map.addLayer({ id: "report-destination-dot", type: "circle", source: "report-destination",
+            paint: { "circle-radius": 11, "circle-color": "#e5322d", "circle-stroke-color": "#ffffff", "circle-stroke-width": 3 } });
+        }
+        const bounds = new maplibregl.LngLatBounds(points[0], points[0]);
+        points.slice(1).forEach(point => bounds.extend(point));
+        if (hasDestination) bounds.extend(destination);
+        map.fitBounds(bounds, { padding: 70, maxZoom: 15, duration: 0 });
+        map.once("idle", () => { window.clearTimeout(timer); resolve(); });
+        map.triggerRepaint();
+      });
+      map.once("error", () => { /* un mosaico que falle no debe cancelar la captura */ });
+    });
+    return map.getCanvas().toDataURL("image/jpeg", 0.9);
+  } catch (error) {
+    console.warn("No se pudo capturar el mapa en vivo.", error);
+    return null;
+  } finally {
+    if (map) map.remove();
+    host.remove();
+  }
+}
+
+function buildStateBreakdown(assignments, reportedPeople) {
+  const rows = new Map();
+  assignments.forEach(item => {
+    const name = item.estado_registro || "Otros";
+    const row = rows.get(name) || { name, registros: 0, personas: 0 };
+    row.registros += 1;
+    row.personas += Number(reportedPeople(item)) || 0;
+    rows.set(name, row);
+  });
+  return [...rows.values()].sort((a, b) => {
+    if (a.name === "Otros") return 1;
+    if (b.name === "Otros") return -1;
+    return b.personas - a.personas || a.name.localeCompare(b.name, "es");
+  });
+}
+
+function buildConciseEventReport({ event, assignments, live = [] }, liveImage = null) {
   const registeredMobilizers = assignments.length;
   const estimatedPeopleValue = event.personas_estimadas_movilizar;
   const hasEstimatedPeople = estimatedPeopleValue !== null && estimatedPeopleValue !== "" &&
@@ -807,6 +891,21 @@ function buildConciseEventReport({ event, assignments }) {
       ? "La estimación es 0; no se puede calcular el porcentaje."
       : `${formatCount(mobilizedPeople)} personas registradas de ${formatCount(estimatedPeople)} estimadas.`;
   const estimatePercent = estimatedPeople > 0 ? `${attendancePercent}%` : "—";
+  const stateRows = buildStateBreakdown(assignments, reportedPeople);
+  const maxStatePeople = Math.max(1, ...stateRows.map(row => row.personas));
+  const stateTableRows = stateRows.map(row => `<tr${row.name === "Otros" ? ' class="report-state-other"' : ""}>
+    <td>${escapeHtml(row.name)}</td>
+    <td class="num">${formatCount(row.registros)}</td>
+    <td class="num"><strong>${formatCount(row.personas)}</strong></td>
+    <td class="bar"><span><i style="width:${Math.round((row.personas / maxStatePeople) * 100)}%"></i></span></td>
+  </tr>`).join("");
+  const liveCounts = { moving: 0, arrived: 0, lost: 0 };
+  live.forEach(item => { liveCounts[liveMobilizerState(item)] += 1; });
+  const captureMoment = new Date().toLocaleString("es", { dateStyle: "long", timeStyle: "short" });
+  const livePanel = liveImage
+    ? `<figure class="report-map"><img src="${liveImage}" alt="Captura del mapa con la ubicación actual de los movilizadores"><figcaption>Captura tomada el ${escapeHtml(captureMoment)} · Mapa © OpenFreeMap © colaboradores de OpenStreetMap</figcaption></figure>
+      <div class="report-map-legend"><span><i style="background:#1681b4"></i>En camino <strong>${formatCount(liveCounts.moving)}</strong></span><span><i style="background:#1f9d6b"></i>Ya llegaron <strong>${formatCount(liveCounts.arrived)}</strong></span><span><i style="background:#e0a100"></i>Sin señal reciente <strong>${formatCount(liveCounts.lost)}</strong></span><span><i style="background:#e5322d"></i>Punto de llegada</span></div>`
+    : `<p class="report-empty">${live.length ? "No se pudo generar la captura del mapa en este momento." : "Todavía no hay movilizadores en camino o llegados para mostrar en el mapa."}</p>`;
   const details = [
     { icon: "date", label: "Fecha del evento", value: eventDate(event.fecha) },
     { icon: "time", label: "Hora de inicio", value: event.hora_inicio ? String(event.hora_inicio).slice(0, 5) : "No especificada" },
@@ -872,15 +971,36 @@ function buildConciseEventReport({ event, assignments }) {
       .report-progress-track{height:9px;margin-top:9px;overflow:hidden;border-radius:99px;background:#e8f0f3}
       .report-progress-fill{height:100%;border-radius:inherit;background:linear-gradient(90deg,#1681b4,#53b9b1);transition:width .5s ease}
       .report-progress-note{margin:7px 0 0;color:#74858d;font-size:9px}.report-footer{margin:18px 0 0;color:#8a989e;font-size:9px;text-align:right}
+      .report-page+.report-page{margin-top:26px;padding-top:26px;border-top:2px dashed #dfeaf0}
+      .report-live{margin-top:16px}.report-map{margin:0}.report-map img{display:block;width:100%;height:auto;border-radius:12px;border:1px solid #dfeaf0}
+      .report-map figcaption{margin-top:6px;color:#74858d;font-size:9px}
+      .report-map-legend{display:flex;flex-wrap:wrap;gap:8px 18px;margin-top:9px;color:#455963;font-size:11px}.report-map-legend span{display:inline-flex;align-items:center;gap:6px}
+      .report-map-legend i{width:11px;height:11px;border-radius:50%;box-shadow:0 0 0 3px rgb(23 37 45 / 8%)}.report-map-legend strong{color:#17252d}
+      .report-page-title{display:flex;align-items:center;gap:14px;margin-bottom:14px}.report-page-title img{width:72px;height:46px;padding:4px;border:1px solid #dfeaf0;border-radius:9px;object-fit:contain}
+      .report-page-title small{display:block;color:#788a94;font-size:9px;font-weight:800;letter-spacing:1.4px}.report-page-title strong{font-size:20px;letter-spacing:-.4px}
+      .report-states{width:100%;border-collapse:collapse;font-size:13px}.report-states th{padding:8px 10px;border-bottom:2px solid #d4eaf5;color:#536872;font-size:10px;font-weight:800;text-align:left}
+      .report-states td{padding:9px 10px;border-bottom:1px solid #e8f0f3}.report-states .num{width:120px;text-align:right}.report-states .bar{width:38%}
+      .report-states .bar span{display:block;height:9px;overflow:hidden;border-radius:99px;background:#e8f0f3}.report-states .bar i{display:block;height:100%;border-radius:inherit;background:linear-gradient(90deg,#1681b4,#53b9b1)}
+      .report-states tfoot td{border-top:2px solid #d4eaf5;border-bottom:0;font-weight:800}.report-state-other td{color:#6b7c84;font-style:italic}.report-state-other .bar i{background:#b5c3ca}
       @media(max-width:760px){.report-document{width:calc(100% - 20px);padding:16px;border-radius:17px}.report-event-details{grid-template-columns:repeat(2,minmax(0,1fr))}.report-summary{grid-template-columns:repeat(2,minmax(0,1fr))}.report-lower{grid-template-columns:1fr}.report-brand h1{font-size:30px}}
       @media(max-width:440px){.report-brand{align-items:flex-start;flex-direction:column;gap:12px}.report-brand h1{font-size:26px}.report-event-detail{gap:7px;padding:10px}.report-icon{width:30px;height:30px;border-radius:9px}.report-event-detail strong{font-size:10px}.report-stat{min-height:150px;padding:13px}.report-stat-label{font-size:9px}}
-      @media print{@page{size:A4 landscape;margin:9mm}body{background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact}.report-toolbar{display:none}.report-document{width:100%;max-width:none;margin:0;padding:0;border:0;border-radius:0;box-shadow:none}.report-cover{padding:18px 22px}.report-brand img{width:72px;height:46px}.report-kicker{font-size:8px}.report-brand h1{font-size:30px}.report-event-details{gap:7px;margin:10px 0 15px}.report-event-detail{padding:9px;gap:7px}.report-icon{width:29px;height:29px}.report-event-detail small{font-size:7px}.report-event-detail strong{font-size:9px}.report-section-heading{margin-bottom:8px;font-size:11px}.report-summary{gap:8px}.report-stat{min-height:122px;padding:12px;gap:5px}.report-stat-icon{width:28px;height:28px}.report-stat-label{font-size:8px}.report-stat strong{font-size:27px}.report-stat small{font-size:7px}.report-lower{gap:9px;margin-top:10px}.report-panel{padding:11px}.report-vehicle-chip{min-height:29px;padding:5px 8px;font-size:8px}.report-progress-numbers{margin-top:5px}.report-progress-numbers strong{font-size:20px}.report-progress-track{height:7px;margin-top:5px}.report-progress-note,.report-footer{font-size:7px}}
+      @media print{.report-page-2{break-before:page;margin-top:0;padding-top:0;border-top:0}.report-page{break-inside:avoid}.report-live{margin-top:9px}.report-states{font-size:11px}.report-states td{padding:6px 8px}@page{size:A4 landscape;margin:9mm}body{background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact}.report-toolbar{display:none}.report-document{width:100%;max-width:none;margin:0;padding:0;border:0;border-radius:0;box-shadow:none}.report-cover{padding:18px 22px}.report-brand img{width:72px;height:46px}.report-kicker{font-size:8px}.report-brand h1{font-size:30px}.report-event-details{gap:7px;margin:10px 0 15px}.report-event-detail{padding:9px;gap:7px}.report-icon{width:29px;height:29px}.report-event-detail small{font-size:7px}.report-event-detail strong{font-size:9px}.report-section-heading{margin-bottom:8px;font-size:11px}.report-summary{gap:8px}.report-stat{min-height:122px;padding:12px;gap:5px}.report-stat-icon{width:28px;height:28px}.report-stat-label{font-size:8px}.report-stat strong{font-size:27px}.report-stat small{font-size:7px}.report-lower{gap:9px;margin-top:10px}.report-panel{padding:11px}.report-vehicle-chip{min-height:29px;padding:5px 8px;font-size:8px}.report-progress-numbers{margin-top:5px}.report-progress-numbers strong{font-size:20px}.report-progress-track{height:7px;margin-top:5px}.report-progress-note,.report-footer{font-size:7px}}
     </style></head><body>
     <div class="report-toolbar"><button id="report-print" type="button">${reportIcon("date")} Imprimir / Guardar como PDF</button><button id="report-close" class="close" type="button">× Cerrar</button></div>
     <main class="report-document">
+      <div class="report-page">
       <header class="report-cover"><div class="report-brand"><img src="${escapeHtml(new URL("assets/img/ora-logo.png", window.location.href).href)}" alt="ORA"><div><p class="report-kicker">RESUMEN DE MOVILIZACIÓN</p><h1>${reportIcon("event")}${escapeHtml(event.nombre || "Movilización sin nombre")}</h1></div></div></header>
       <section class="report-event-details" aria-label="Datos del evento">${details}</section>
       <section aria-labelledby="report-highlights"><h2 class="report-section-heading" id="report-highlights">${reportIcon("chart")} Resumen de la movilización</h2><div class="report-summary">${stats}</div></section>
+      <section class="report-panel report-live" aria-labelledby="report-live-heading"><h2 class="report-section-heading" id="report-live-heading">${reportIcon("place")} La movilización en este momento</h2>${livePanel}</section>
+      </div>
+      <div class="report-page report-page-2">
+      <div class="report-page-title"><img src="${escapeHtml(new URL("assets/img/ora-logo.png", window.location.href).href)}" alt="ORA"><div><small>RESUMEN DE MOVILIZACIÓN</small><strong>${escapeHtml(event.nombre || "Movilización sin nombre")}</strong></div></div>
+      <section class="report-panel" aria-labelledby="report-states-heading"><h2 class="report-section-heading" id="report-states-heading">${reportIcon("crowd")} Personas registradas por estado</h2>
+        ${stateRows.length ? `<table class="report-states"><thead><tr><th>Estado</th><th class="num">Movilizadores</th><th class="num">Personas</th><th></th></tr></thead><tbody>${stateTableRows}</tbody>
+        <tfoot><tr><td>Total</td><td class="num">${formatCount(registeredMobilizers)}</td><td class="num"><strong>${formatCount(mobilizedPeople)}</strong></td><td></td></tr></tfoot></table>
+        <p class="report-progress-note">«Otros» reúne a las personas registradas por usuarios que están fuera de la estructura de estados.</p>` : '<p class="report-empty">Todavía no hay personas registradas.</p>'}
+      </section>
       <div class="report-lower">
         <section class="report-panel" aria-labelledby="report-vehicles-heading"><h2 class="report-section-heading" id="report-vehicles-heading">${reportIcon("vehicle")} Transporte por tipo</h2><div class="report-vehicle-list">${vehicleTypes || '<p class="report-empty">No se reportaron vehículos.</p>'}</div></section>
         <section class="report-panel" aria-labelledby="report-attendance-heading">
@@ -889,6 +1009,7 @@ function buildConciseEventReport({ event, assignments }) {
           <div class="report-progress-track" role="progressbar" aria-label="Porcentaje de personas movilizadas respecto a la estimación" aria-valuenow="${attendanceWidth}" aria-valuemin="0" aria-valuemax="100"><div class="report-progress-fill" style="width:${attendanceWidth}%"></div></div>
           <p class="report-progress-note">${estimateSummary}${estimatedPeople > 0 && mobilizedPeople > estimatedPeople ? " El porcentaje supera el 100% porque se movilizaron más personas que las estimadas." : ""}</p>
         </section>
+      </div>
       </div>
       <footer class="report-footer">Organización Renovadora Auténtica · Resumen consolidado</footer>
     </main></body></html>`;
@@ -924,8 +1045,9 @@ async function generateEventReport(eventId, triggerButton, fullSheet = false) {
     const query = { id: eventId };
     if (fullSheet) query.full = "1";
     const report = await request("event-report", { query });
+    const liveImage = fullSheet ? null : await captureLiveMapImage(report);
     popup.document.open();
-    popup.document.write(fullSheet ? buildDetailedEventSheet(report) : buildConciseEventReport(report));
+    popup.document.write(fullSheet ? buildDetailedEventSheet(report) : buildConciseEventReport(report, liveImage));
     popup.document.close();
     popup.document.getElementById("report-print")?.addEventListener("click", () => popup.print());
     popup.document.getElementById("report-close")?.addEventListener("click", () => popup.close());

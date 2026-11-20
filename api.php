@@ -1220,7 +1220,7 @@ try {
 
         $eventQuery = $pdo->prepare(
             'SELECT m.nombre, m.fecha, m.hora_inicio, m.personas_estimadas_movilizar, m.lugar, t.nombre AS municipio, ' .
-            'p.nombre AS estado_nombre ' .
+            'p.nombre AS estado_nombre, m.punto_llegada_nombre, m.punto_llegada_lat, m.punto_llegada_lng ' .
             'FROM movilizaciones m ' .
             'LEFT JOIN unidades_territoriales t ON t.id = m.unidad_territorial_id ' .
             'LEFT JOIN unidades_territoriales p ON p.id = t.padre_id WHERE m.id = ?'
@@ -1231,14 +1231,44 @@ try {
             respond(['error' => 'No se encontró la movilización.'], 404);
         }
 
+        // El estado de cada registro sale de la unidad del usuario: estado, o el estado al que pertenece su
+        // municipio o parroquia. Sin unidad (o a nivel nacional) queda sin estado y el resumen lo cuenta como "Otros".
         $assignmentQuery = $pdo->prepare(
             'SELECT me.personas_planificadas, me.personas_asistentes, me.cuota_personas, me.vehiculos_json, ' .
-            'me.cantidad_autobuses, me.plan_confirmado_en ' .
-            'FROM movilizacion_entes me WHERE me.movilizacion_id = ? ORDER BY me.id'
+            'me.cantidad_autobuses, me.plan_confirmado_en, ' .
+            "CASE ut.nivel WHEN 'estadal' THEN ut.nombre WHEN 'municipal' THEN up.nombre " .
+            "WHEN 'parroquial' THEN upp.nombre ELSE NULL END AS estado_registro " .
+            'FROM movilizacion_entes me ' .
+            'LEFT JOIN usuarios u ON u.id = me.responsable_usuario_id ' .
+            'LEFT JOIN unidades_territoriales ut ON ut.id = u.unidad_territorial_id ' .
+            'LEFT JOIN unidades_territoriales up ON up.id = ut.padre_id ' .
+            'LEFT JOIN unidades_territoriales upp ON upp.id = up.padre_id ' .
+            'WHERE me.movilizacion_id = ? ORDER BY me.id'
         );
         $assignmentQuery->execute([$eventId]);
         $assignments = $assignmentQuery->fetchAll();
-        respond(['event' => $event, 'assignments' => $assignments]);
+
+        // Posición más reciente de quienes están en ruta o ya llegaron (para la captura del mapa en vivo)
+        $liveQuery = $pdo->prepare(
+            'SELECT ts.estado AS tracking_status, ts.llegada_confirmada_en, ' .
+            '(SELECT tp.latitud FROM tracking_puntos tp WHERE tp.tracking_sesion_id = ts.id ORDER BY tp.registrado_en DESC, tp.id DESC LIMIT 1) AS latitude, ' .
+            '(SELECT tp.longitud FROM tracking_puntos tp WHERE tp.tracking_sesion_id = ts.id ORDER BY tp.registrado_en DESC, tp.id DESC LIMIT 1) AS longitude, ' .
+            '(SELECT GREATEST(0, LEAST(TIMESTAMPDIFF(SECOND, tp.registrado_en, UTC_TIMESTAMP()), TIMESTAMPDIFF(SECOND, tp.creado_en, NOW()))) ' .
+            'FROM tracking_puntos tp WHERE tp.tracking_sesion_id = ts.id ORDER BY tp.registrado_en DESC, tp.id DESC LIMIT 1) AS last_seen_age_seconds ' .
+            'FROM movilizacion_entes me ' .
+            'JOIN tracking_sesiones ts ON ts.movilizacion_ente_id = me.id ' .
+            "AND (ts.estado = 'en_curso' OR ts.llegada_confirmada_en IS NOT NULL) " .
+            'WHERE me.movilizacion_id = ? ' .
+            'AND ts.id = (SELECT latest.id FROM tracking_sesiones latest WHERE latest.movilizacion_ente_id = me.id ' .
+            "AND (latest.estado = 'en_curso' OR latest.llegada_confirmada_en IS NOT NULL) " .
+            'ORDER BY latest.iniciado_en DESC, latest.id DESC LIMIT 1)'
+        );
+        $liveQuery->execute([$eventId]);
+        $live = array_values(array_filter(
+            $liveQuery->fetchAll(),
+            static fn(array $row): bool => $row['latitude'] !== null && $row['longitude'] !== null
+        ));
+        respond(['event' => $event, 'assignments' => $assignments, 'live' => $live]);
     }
 
     if ($action === 'event-detail' && $method === 'GET') {
