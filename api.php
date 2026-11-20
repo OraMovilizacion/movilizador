@@ -935,7 +935,7 @@ try {
         require_module($user, 'tracking');
         $eventQuery = $pdo->query(
             "SELECT id, nombre, fecha, hora_inicio, lugar, punto_llegada_nombre, " .
-            "punto_llegada_lat, punto_llegada_lng " .
+            "punto_llegada_lat, punto_llegada_lng, ruta_ideal_geojson " .
             "FROM movilizaciones WHERE estado = 'en_curso' ORDER BY fecha DESC, id DESC"
         );
         $activeEvents = $eventQuery->fetchAll();
@@ -1250,7 +1250,7 @@ try {
 
         // Posición más reciente de quienes están en ruta o ya llegaron (para la captura del mapa en vivo)
         $liveQuery = $pdo->prepare(
-            'SELECT ts.estado AS tracking_status, ts.llegada_confirmada_en, me.ruta_personal_geojson, ' .
+            'SELECT me.id AS assignment_id, ts.estado AS tracking_status, ts.llegada_confirmada_en, me.ruta_personal_geojson, ' .
             '(SELECT tp.latitud FROM tracking_puntos tp WHERE tp.tracking_sesion_id = ts.id ORDER BY tp.registrado_en DESC, tp.id DESC LIMIT 1) AS latitude, ' .
             '(SELECT tp.longitud FROM tracking_puntos tp WHERE tp.tracking_sesion_id = ts.id ORDER BY tp.registrado_en DESC, tp.id DESC LIMIT 1) AS longitude, ' .
             '(SELECT GREATEST(0, LEAST(TIMESTAMPDIFF(SECOND, tp.registrado_en, UTC_TIMESTAMP()), TIMESTAMPDIFF(SECOND, tp.creado_en, NOW()))) ' .
@@ -1268,6 +1268,26 @@ try {
             $liveQuery->fetchAll(),
             static fn(array $row): bool => $row['latitude'] !== null && $row['longitude'] !== null
         ));
+        // Camino recorrido de cada uno (solo la ida), reducido a unos 500 puntos para que el resumen sea liviano
+        $pathQuery = $pdo->prepare(
+            'SELECT tp.latitud, tp.longitud FROM tracking_puntos tp ' .
+            'JOIN tracking_sesiones ts ON ts.id = tp.tracking_sesion_id ' .
+            "WHERE ts.movilizacion_ente_id = ? AND ts.tipo <> 'retorno' " .
+            'ORDER BY ts.iniciado_en, ts.id, tp.secuencia LIMIT 20000'
+        );
+        foreach ($live as &$liveRow) {
+            $pathQuery->execute([(int) $liveRow['assignment_id']]);
+            $rawPoints = $pathQuery->fetchAll();
+            $step = max(1, (int) ceil(count($rawPoints) / 500));
+            $path = [];
+            foreach ($rawPoints as $index => $point) {
+                if ($index % $step === 0 || $index === count($rawPoints) - 1) {
+                    $path[] = [(float) $point['longitud'], (float) $point['latitud']];
+                }
+            }
+            $liveRow['points'] = $path;
+        }
+        unset($liveRow);
         respond(['event' => $event, 'assignments' => $assignments, 'live' => $live]);
     }
 

@@ -810,26 +810,34 @@ async function captureLiveMapImage({ event, live = [] }) {
     if (!loaded && !map.isStyleLoaded()) throw new Error(firstMapError || "El mapa no terminó de cargar.");
 
     const colors = { moving: "#1681b4", arrived: "#1f9d6b", lost: "#e0a100" };
-    // Rutas ideales: finas y semitransparentes para que no tapen el mapa ni se tapen entre sí
-    const routeFeatures = live.map(item => {
-      const coordinates = parseTrackingRoute(item.ruta_personal_geojson);
-      return coordinates.length > 1
-        ? { type: "Feature", properties: { color: colors[liveMobilizerState(item)] }, geometry: { type: "LineString", coordinates } }
-        : null;
-    }).filter(Boolean);
-    if (!routeFeatures.length) {
-      const eventRoute = parseTrackingRoute(event.ruta_ideal_geojson);
-      if (eventRoute.length > 1) routeFeatures.push({ type: "Feature", properties: { color: "#5a6b75" }, geometry: { type: "LineString", coordinates: eventRoute } });
-    }
+    // Camino de cada movilizador: GPS real (línea continua) y ruta ideal donde faltó la conexión (línea punteada).
+    // Líneas finas y semitransparentes para que se vean todas sin taparse.
+    const eventRoute = parseTrackingRoute(event.ruta_ideal_geojson);
+    const routeFeatures = [];
+    live.forEach(item => {
+      const personal = parseTrackingRoute(item.ruta_personal_geojson);
+      const ideal = personal.length > 1 ? personal : eventRoute;
+      const color = colors[liveMobilizerState(item)];
+      buildFollowedPath(item.points, ideal, Boolean(item.llegada_confirmada_en)).forEach(segment => {
+        routeFeatures.push({ type: "Feature", properties: { color, kind: segment.kind }, geometry: { type: "LineString", coordinates: segment.coordinates } });
+      });
+      // Quien aún no tiene camino registrado muestra al menos su ruta ideal
+      if (!(item.points || []).length && ideal.length > 1 && !item.llegada_confirmada_en) {
+        routeFeatures.push({ type: "Feature", properties: { color, kind: "estimated" }, geometry: { type: "LineString", coordinates: ideal } });
+      }
+    });
     const bounds = new maplibregl.LngLatBounds(points[0], points[0]);
     points.slice(1).forEach(point => bounds.extend(point));
     routeFeatures.forEach(feature => feature.geometry.coordinates.forEach(point => bounds.extend(point)));
     if (hasDestination) bounds.extend(destination);
 
     map.addSource("report-routes", { type: "geojson", data: { type: "FeatureCollection", features: routeFeatures } });
-    map.addLayer({ id: "report-routes-line", type: "line", source: "report-routes",
+    map.addLayer({ id: "report-routes-estimated", type: "line", source: "report-routes", filter: ["==", ["get", "kind"], "estimated"],
+      layout: { "line-cap": "butt", "line-join": "round" },
+      paint: { "line-color": ["get", "color"], "line-width": 2, "line-opacity": 0.85, "line-dasharray": [2, 2] } });
+    map.addLayer({ id: "report-routes-real", type: "line", source: "report-routes", filter: ["==", ["get", "kind"], "real"],
       layout: { "line-cap": "round", "line-join": "round" },
-      paint: { "line-color": ["get", "color"], "line-width": 2, "line-opacity": 0.8 } });
+      paint: { "line-color": ["get", "color"], "line-width": 2.5, "line-opacity": 0.9 } });
     const dots = live.map(item => ({
       type: "Feature",
       properties: { color: colors[liveMobilizerState(item)] },
@@ -933,7 +941,7 @@ function buildConciseEventReport({ event, assignments, live = [] }, liveImage = 
   const captureMoment = new Date().toLocaleString("es", { dateStyle: "long", timeStyle: "short" });
   const livePanel = liveImage
     ? `<figure class="report-map"><img src="${liveImage}" alt="Captura del mapa con la ubicación actual de los movilizadores"><figcaption>Captura tomada el ${escapeHtml(captureMoment)} · Mapa © OpenFreeMap © colaboradores de OpenStreetMap</figcaption></figure>
-      <div class="report-map-legend"><span><i style="background:#1681b4"></i>En camino <strong>${formatCount(liveCounts.moving)}</strong></span><span><i style="background:#1f9d6b"></i>Ya llegaron <strong>${formatCount(liveCounts.arrived)}</strong></span><span><i style="background:#e0a100"></i>Sin señal reciente <strong>${formatCount(liveCounts.lost)}</strong></span><span><i style="background:#e5322d"></i>Punto de llegada</span><span class="report-map-note">Las líneas finas son la ruta ideal de cada movilizador.</span></div>`
+      <div class="report-map-legend"><span><i style="background:#1681b4"></i>En camino <strong>${formatCount(liveCounts.moving)}</strong></span><span><i style="background:#1f9d6b"></i>Ya llegaron <strong>${formatCount(liveCounts.arrived)}</strong></span><span><i style="background:#e0a100"></i>Sin señal reciente <strong>${formatCount(liveCounts.lost)}</strong></span><span><i style="background:#e5322d"></i>Punto de llegada</span><span class="report-map-note">Línea continua: camino recorrido. Línea punteada: ruta ideal donde se perdió la señal.</span></div>`
     : `<p class="report-empty">${live.length ? "No se pudo generar la captura del mapa en este momento." + (captureError ? ` <small style="color:#9aa8af">(${escapeHtml(captureError)})</small>` : "") : "Todavía no hay movilizadores en camino o llegados para mostrar en el mapa."}</p>`;
   const details = [
     { icon: "date", label: "Fecha del evento", value: eventDate(event.fecha) },
@@ -1200,6 +1208,70 @@ function parseTrackingRoute(value) {
     console.error("No se pudo interpretar la ruta guardada para estimar la posición:", error);
     return [];
   }
+}
+
+// ---- Camino seguido: GPS real + ruta ideal donde no hubo conexión ----
+const PATH_GAP_METERS = 250;
+
+function pathDistanceMeters(a, b) {
+  const rad = Math.PI / 180;
+  const dLat = (b[1] - a[1]) * rad;
+  const dLng = (b[0] - a[0]) * rad;
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(a[1] * rad) * Math.cos(b[1] * rad) * Math.sin(dLng / 2) ** 2;
+  return 12742000 * Math.asin(Math.min(1, Math.sqrt(h)));
+}
+
+function nearestRouteIndex(route, point) {
+  let best = 0;
+  let bestDistance = Infinity;
+  route.forEach((vertex, index) => {
+    const distance = pathDistanceMeters(vertex, point);
+    if (distance < bestDistance) { bestDistance = distance; best = index; }
+  });
+  return best;
+}
+
+// Tramo de la ruta ideal entre dos puntos; si no hay ruta ideal utilizable devuelve null
+function idealRouteBetween(route, from, to) {
+  if (!Array.isArray(route) || route.length < 2) return null;
+  const start = nearestRouteIndex(route, from);
+  const end = nearestRouteIndex(route, to);
+  if (start === end) return [from, to];
+  const slice = start < end ? route.slice(start, end + 1) : route.slice(end, start + 1).reverse();
+  return [from, ...slice, to];
+}
+
+// Devuelve tramos { kind: "real" | "estimated", coordinates } desde la salida hasta la llegada.
+// Los tramos "estimated" siguen la ruta ideal en los lugares donde se perdió la conexión.
+function buildFollowedPath(realPoints, idealRoute, arrived) {
+  const ideal = Array.isArray(idealRoute) && idealRoute.length > 1 ? idealRoute : null;
+  const points = (realPoints || []).filter(point => Array.isArray(point) &&
+    Number.isFinite(Number(point[0])) && Number.isFinite(Number(point[1]))).map(point => [Number(point[0]), Number(point[1])]);
+  if (!points.length) {
+    return ideal && arrived ? [{ kind: "estimated", coordinates: ideal }] : [];
+  }
+  const segments = [];
+  const pushEstimated = (from, to) => {
+    const via = idealRouteBetween(ideal, from, to);
+    if (via && via.length > 1) segments.push({ kind: "estimated", coordinates: via });
+  };
+  if (ideal && pathDistanceMeters(ideal[0], points[0]) > PATH_GAP_METERS) pushEstimated(ideal[0], points[0]);
+  let current = [points[0]];
+  for (let index = 1; index < points.length; index += 1) {
+    if (pathDistanceMeters(points[index - 1], points[index]) > PATH_GAP_METERS) {
+      if (current.length > 1) segments.push({ kind: "real", coordinates: current });
+      pushEstimated(points[index - 1], points[index]);
+      current = [points[index]];
+    } else {
+      current.push(points[index]);
+    }
+  }
+  if (current.length > 1) segments.push({ kind: "real", coordinates: current });
+  const last = points[points.length - 1];
+  if (arrived && ideal && pathDistanceMeters(last, ideal[ideal.length - 1]) > PATH_GAP_METERS) {
+    pushEstimated(last, ideal[ideal.length - 1]);
+  }
+  return segments;
 }
 
 function distanceBetweenCoordinates(first, second) {
@@ -1592,22 +1664,31 @@ async function drawWalkedRoute(mobilizer) {
     const result = await request("tracking-route", { query: { assignmentId: mobilizer.assignment_id } });
     if (requestId !== trackingWalkedRequestId || !trackingOverviewMap) return;
     const allPoints = [];
+    const mobilizerEvent = trackingOverviewEvents.find(item => String(item.id) === String(mobilizer.movilizacion_id));
+    const idealRoute = parseTrackingRoute(mobilizer.ruta_personal_geojson).length > 1
+      ? parseTrackingRoute(mobilizer.ruta_personal_geojson)
+      : parseTrackingRoute(mobilizer.ruta_ideal_geojson || mobilizerEvent?.ruta_ideal_geojson);
     result.legs.forEach((leg, index) => {
-      if (!Array.isArray(leg.points) || leg.points.length < 2) return;
-      const layerId = `tracking-walked-${index}`;
       const returning = leg.type === "retorno";
-      setMapLine(trackingOverviewMap, layerId, leg.points, {
-        color: returning ? "#7c5cff" : "#0e9f62",
-        weight: 5,
-        opacity: 1,
-        dashArray: returning
+      // La ida se completa con la ruta ideal donde faltó señal; el retorno se dibuja tal como se recorrió
+      const segments = returning
+        ? (Array.isArray(leg.points) && leg.points.length > 1 ? [{ kind: "real", coordinates: leg.points }] : [])
+        : buildFollowedPath(leg.points, idealRoute, Boolean(leg.finished));
+      segments.forEach((segment, segmentIndex) => {
+        const layerId = `tracking-walked-${index}-${segmentIndex}`;
+        setMapLine(trackingOverviewMap, layerId, segment.coordinates, {
+          color: returning ? "#7c5cff" : "#0e9f62",
+          weight: 5,
+          opacity: 1,
+          dashArray: returning || segment.kind === "estimated"
+        });
+        trackingWalkedLayers.push(layerId);
+        allPoints.push(...segment.coordinates);
       });
-      trackingWalkedLayers.push(layerId);
-      allPoints.push(...leg.points);
     });
     trackingWalkedPoints = allPoints;
     if (allPoints.length) fitMapToPoints(trackingOverviewMap, allPoints, 45, 16);
-    else showNotice("Este movilizador no tiene puntos GPS guardados para dibujar su ruta.", false);
+    else showNotice("Este movilizador no tiene puntos GPS ni una ruta ideal guardada para dibujar su camino.", false);
   } catch (error) {
     if (requestId === trackingWalkedRequestId) trackingWalkedKey = "";
     console.error("No se pudo cargar la ruta recorrida:", error);
