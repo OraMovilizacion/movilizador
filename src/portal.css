@@ -209,7 +209,7 @@ input:focus, select:focus, textarea:focus { border-color: var(--signal) !importa
 .legend-return { background: repeating-linear-gradient(90deg, #7c5cff 0 5px, transparent 5px 8px); }
 
 .tracking-map-icon { display: grid; width: 40px; height: 48px; place-items: start center; border: 0; background: transparent; }
-.tracking-destination-marker { width: 20px; height: 20px; border: 3px solid #fff; border-radius: 50%; background: var(--ink); box-shadow: 0 0 0 5px rgb(12 16 24 / 18%), 0 3px 10px rgb(12 16 24 / 40%); }
+.tracking-destination-marker { width: 20px; height: 20px; border: 3px solid #fff; border-radius: 50%; background: #e5322d; box-shadow: 0 0 0 5px rgb(229 50 45 / 25%), 0 3px 10px rgb(12 16 24 / 40%); }
 .tracking-map-pin { position: relative; display: grid; width: 36px; height: 36px; place-items: center; border: 3px solid #fff; border-radius: 50% 50% 50% 8px; background: var(--signal); box-shadow: 0 6px 14px rgb(12 16 24 / 35%); color: #fff; transform: rotate(-45deg); }
 .tracking-map-pin > span { font-size: 13px; font-weight: 800; line-height: 1; transform: rotate(45deg); }
 .tracking-map-pin.connected { background: var(--live); }
@@ -481,7 +481,7 @@ input:focus, select:focus, textarea:focus { border-color: var(--signal) !importa
 .wizard-alert { margin: 10px 0; padding: 12px 14px; border: 1px solid var(--warn-line); border-radius: var(--r-md); background: var(--warn-soft); color: var(--warn); font-size: 13px; line-height: 1.5; }
 .wizard-alert.success { border-color: var(--signal-line); background: var(--signal-soft); color: var(--signal-dark); }
 .wizard-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 10px; margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--line); }
-.vehicle-row { display: grid; grid-template-columns: minmax(130px, .9fr) minmax(100px, .8fr) 92px 100px 90px; align-items: end; gap: 12px; padding: 16px; border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--surface-2); }
+.vehicle-row { display: grid; grid-template-columns: minmax(150px, .9fr) minmax(110px, .8fr) 100px 90px; align-items: end; gap: 12px; padding: 16px; border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--surface-2); }
 .vehicle-row .field { font-size: 12px; }
 .vehicle-row .field input, .vehicle-row .field select { height: 44px; background: var(--surface); }
 .vehicle-row .vehicle-photo-button { min-height: 44px; padding: 8px; font-size: 13px !important; }
@@ -655,12 +655,6 @@ body[data-portal-mode="mobilizer"] .event-card-actions .button { min-height: 48p
 }
 
 
-/* Personas por vehículo */
-.vehicle-people input { text-align: center; }
-.vehicle-people-total { margin: 6px 2px 0; font-weight: 600; color: var(--muted); }
-.vehicle-people-total.ok { color: #1f8a4c; }
-.vehicle-people-total.over { color: #c0392b; }
-
 /* Organizaciones de la estructura */
 .org-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 14px; }
 .org-card { position: relative; display: grid; gap: 7px; align-content: start; padding: 18px 18px 16px; border: 1px solid var(--line); border-top: 4px solid var(--org, var(--signal)); border-radius: var(--r-lg); background: var(--surface); color: inherit; text-align: left; cursor: pointer; font: inherit; transition: transform .15s ease, box-shadow .15s ease, border-color .15s ease; }
@@ -700,3 +694,7 @@ body[data-portal-mode="mobilizer"] .event-card-actions .button { min-height: 48p
   .org-grid { grid-template-columns: 1fr 1fr; gap: 10px; }
   .org-card { padding: 14px 12px; }
 }
+
+.structure-members { display: grid; gap: 8px; margin-bottom: 8px; }
+.structure-members h3 { margin: 6px 0 6px; font-size: 17px; }
+.structure-members h3 small { margin-left: 8px; color: var(--muted); font-size: 12px; font-weight: 400; }

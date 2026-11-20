@@ -205,19 +205,21 @@ header("Content-Security-Policy: default-src 'self'; script-src 'self'; style-sr
               </div>
               <div class="structure-actions">
                 <button class="button secondary" id="show-structure-button" type="button">Mostrar Estructura</button>
+                <button class="button secondary" id="new-org-member" type="button">+ Usuario de la organización</button>
                 <button class="button primary" id="new-structure-user" type="button">+ Nuevo movilizador</button>
               </div>
             </div>
+            <div id="structure-members" class="structure-members"></div>
             <div id="structure-tree" class="structure-tree"></div>
             <form id="structure-form" class="structure-form" hidden>
-              <div class="route-heading"><div><h3 id="structure-form-title">Cuenta de movilizador</h3><p>El teléfono sirve para iniciar sesión. La contraseña la define administración.</p></div></div>
+              <div class="route-heading"><div><h3 id="structure-form-title">Cuenta de movilizador</h3><p>El teléfono sirve para iniciar sesión en el portal de movilizadores. La contraseña la define administración.</p></div></div>
               <input name="userId" type="hidden">
               <input name="organizationId" type="hidden">
               <div class="field-grid">
                 <label class="field">Nombre completo<input name="name" maxlength="140" required></label>
                 <label class="field">Teléfono<input name="phone" type="tel" inputmode="tel" maxlength="20" required placeholder="+58 412 1234567"></label>
                 <label class="field">Correo (opcional)<input name="email" type="email" maxlength="190"></label>
-                <label class="field">Unidad territorial<select name="territoryId" required></select></label>
+                <label class="field" id="structure-territory-field">Unidad territorial<select name="territoryId"></select></label>
                 <label class="field">Contraseña inicial / nueva<input name="password" type="password" autocomplete="new-password" minlength="8" maxlength="1024"></label>
                 <label class="field">Acceso<select name="active"><option value="1">Activo</option><option value="0">Desactivado</option></select></label>
               </div>

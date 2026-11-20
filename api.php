@@ -662,7 +662,12 @@ try {
             'correo AS usuario_correo, activo AS usuario_activo, unidad_territorial_id, organizacion_id ' .
             'FROM usuarios WHERE rol = \'responsable\' AND unidad_territorial_id IS NOT NULL'
         )->fetchAll();
-        respond(['organizations' => $organizations, 'territories' => $territoryRows, 'assignments' => $assignments]);
+        $members = $pdo->query(
+            'SELECT id AS usuario_id, nombre AS usuario_nombre, telefono AS usuario_telefono, ' .
+            'correo AS usuario_correo, activo AS usuario_activo, organizacion_id ' .
+            'FROM usuarios WHERE rol = \'responsable\' AND unidad_territorial_id IS NULL AND organizacion_id IS NOT NULL ORDER BY nombre'
+        )->fetchAll();
+        respond(['organizations' => $organizations, 'territories' => $territoryRows, 'assignments' => $assignments, 'members' => $members]);
     }
 
     if ($action === 'parishes-import' && $method === 'POST') {
@@ -788,7 +793,9 @@ try {
         $phone = normalize_phone((string) ($data['phone'] ?? ''));
         $email = strtolower(trim((string) ($data['email'] ?? '')));
         $password = (string) ($data['password'] ?? '');
-        $territoryId = filter_var($data['territoryId'] ?? null, FILTER_VALIDATE_INT);
+        // Sin unidad territorial = usuario de la organización (solo acceso al portal)
+        $territoryRaw = $data['territoryId'] ?? null;
+        $territoryId = ($territoryRaw === null || $territoryRaw === '') ? null : filter_var($territoryRaw, FILTER_VALIDATE_INT);
         $organizationId = filter_var($data['organizationId'] ?? null, FILTER_VALIDATE_INT);
         $active = filter_var($data['active'] ?? true, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
         if ($organizationId === false || $organizationId === null || $organizationId < 1) {
@@ -801,18 +808,20 @@ try {
         }
         if ($userId === false || ($userId !== null && $userId < 1) || $name === '' || mb_strlen($name) > 140 ||
             $phone === '' || ($email !== '' && (!filter_var($email, FILTER_VALIDATE_EMAIL) || mb_strlen($email) > 190)) ||
-            $territoryId === false || $territoryId < 1 || $active === null ||
+            $territoryId === false || ($territoryId !== null && $territoryId < 1) || $active === null ||
             ($userId === null && strlen($password) < 8) ||
             ($password !== '' && (strlen($password) < 8 || strlen($password) > 1024))) {
-            respond(['error' => 'Completa nombre, teléfono, unidad territorial y una contraseña de al menos 8 caracteres para cuentas nuevas.'], 422);
+            respond(['error' => 'Completa nombre, teléfono y una contraseña de al menos 8 caracteres para cuentas nuevas.'], 422);
         }
 
-        $unitStatement = $pdo->prepare(
-            "SELECT id FROM unidades_territoriales WHERE id = ? AND activo = 1 AND nivel IN ('nacional', 'estadal', 'municipal', 'parroquial')"
-        );
-        $unitStatement->execute([$territoryId]);
-        if (!$unitStatement->fetchColumn()) {
-            respond(['error' => 'Selecciona una unidad territorial activa.'], 422);
+        if ($territoryId !== null) {
+            $unitStatement = $pdo->prepare(
+                "SELECT id FROM unidades_territoriales WHERE id = ? AND activo = 1 AND nivel IN ('nacional', 'estadal', 'municipal', 'parroquial')"
+            );
+            $unitStatement->execute([$territoryId]);
+            if (!$unitStatement->fetchColumn()) {
+                respond(['error' => 'Selecciona una unidad territorial activa.'], 422);
+            }
         }
 
         $duplicatePhone = $pdo->prepare(
@@ -826,7 +835,7 @@ try {
             "SELECT id FROM usuarios WHERE unidad_territorial_id = ? AND organizacion_id = ? AND rol = 'responsable' AND (? IS NULL OR id <> ?) LIMIT 1"
         );
         $duplicateUnit->execute([$territoryId, $organizationId, $userId, $userId]);
-        if ($duplicateUnit->fetchColumn()) {
+        if ($territoryId !== null && $duplicateUnit->fetchColumn()) {
             respond(['error' => 'Ya existe una cuenta responsable para esa unidad en esta organización.'], 409);
         }
         if ($email !== '') {
@@ -853,7 +862,7 @@ try {
                 $organizationId,
                 $active ? 1 : 0
             ]);
-            respond(['id' => (int) $pdo->lastInsertId(), 'message' => 'Cuenta de movilizador creada.']);
+            respond(['id' => (int) $pdo->lastInsertId(), 'message' => $territoryId === null ? 'Usuario de la organización creado.' : 'Cuenta de movilizador creada.']);
         }
 
         $accountStatement = $pdo->prepare("SELECT id FROM usuarios WHERE id = ? AND rol = 'responsable'");
@@ -945,7 +954,7 @@ try {
             '(SELECT tp.longitud FROM tracking_puntos tp WHERE tp.tracking_sesion_id = ts.id ORDER BY tp.registrado_en DESC, tp.id DESC LIMIT 1) AS longitude, ' .
             '(SELECT tp.precision_metros FROM tracking_puntos tp WHERE tp.tracking_sesion_id = ts.id ORDER BY tp.registrado_en DESC, tp.id DESC LIMIT 1) AS accuracy, ' .
             '(SELECT tp.registrado_en FROM tracking_puntos tp WHERE tp.tracking_sesion_id = ts.id ORDER BY tp.registrado_en DESC, tp.id DESC LIMIT 1) AS last_seen_at, ' .
-            '(SELECT TIMESTAMPDIFF(SECOND, tp.registrado_en, UTC_TIMESTAMP()) FROM tracking_puntos tp WHERE tp.tracking_sesion_id = ts.id ORDER BY tp.registrado_en DESC, tp.id DESC LIMIT 1) AS last_seen_age_seconds, ' .
+            '(SELECT GREATEST(0, LEAST(TIMESTAMPDIFF(SECOND, tp.registrado_en, UTC_TIMESTAMP()), TIMESTAMPDIFF(SECOND, tp.creado_en, NOW()))) FROM tracking_puntos tp WHERE tp.tracking_sesion_id = ts.id ORDER BY tp.registrado_en DESC, tp.id DESC LIMIT 1) AS last_seen_age_seconds, ' .
             '(SELECT COUNT(*) FROM fotos_asistencia fa WHERE fa.movilizacion_ente_id = me.id) AS photo_count, ' .
             '(SELECT COUNT(*) FROM fotos_asistencia fa WHERE fa.movilizacion_ente_id = me.id AND fa.tipo = \'lista\') AS list_photo_count, ' .
             '(SELECT COUNT(*) FROM fotos_asistencia fa WHERE fa.movilizacion_ente_id = me.id AND fa.tipo = \'vehiculo\') AS vehicle_photo_count, ' .

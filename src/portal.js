@@ -12,6 +12,7 @@ const PENDING_KEY = "movilizaciones-pending-tracking-v1";
 const TRACKING_DB = "movilizaciones-local";
 const TRACKING_STORE = "tracking_sessions";
 const POINT_DISTANCE_METERS = 20;
+const TRACKING_HEARTBEAT_MS = 30000;
 const TRACKING_SIGNAL_STALE_SECONDS = 120;
 
 const loginScreen = document.getElementById("login-screen");
@@ -33,6 +34,7 @@ let reportEvents = [];
 let territories = [];
 let structureOrganizations = [];
 let structureAssignments = [];
+let structureMembers = [];
 let activeStructureOrgId = null;
 const ORG_COLORS = ["#1681b4", "#7c5cff", "#d6336c", "#e8590c", "#2f9e44", "#0b7285", "#9c36b5", "#b08900"];
 let systemRoles = [];
@@ -1537,6 +1539,15 @@ function updateTrackingOverviewMap(event, mobilizers) {
         [destination[1], destination[0]],
         { className: "tracking-destination-marker", html: '<span aria-hidden="true"></span>' }
       );
+      // Estilo en línea: el destino se ve rojo aunque el CSS en caché sea una versión anterior
+      Object.assign(trackingDestinationMarker.getElement().style, {
+        width: "20px",
+        height: "20px",
+        border: "3px solid #fff",
+        borderRadius: "50%",
+        background: "#e5322d",
+        boxShadow: "0 0 0 5px rgba(229,50,45,.25), 0 3px 10px rgba(12,16,24,.4)"
+      });
       trackingDestinationMarker.setPopup(new maplibregl.Popup({ offset: 12 })
         .setText(`Destino: ${event.punto_llegada_nombre || event.lugar}`));
     } else {
@@ -1979,6 +1990,16 @@ function renderStructureTree() {
   document.getElementById("structure-org-summary").textContent = `${assigned} de ${slots.length} unidades con movilizador asignado`;
 }
 
+function renderStructureMembers() {
+  const container = document.getElementById("structure-members");
+  const org = activeStructureOrg();
+  if (!container || !org) return;
+  const members = structureMembers.filter(item => Number(item.organizacion_id) === Number(org.id));
+  container.innerHTML = `<h3>Usuarios de la organización <small>${members.length} sin unidad territorial · entran al portal con su teléfono</small></h3>
+    ${members.length ? members.map(member => `<div class="structure-row"><span><strong>${escapeHtml(member.usuario_nombre)}</strong><span class="structure-account">${escapeHtml(member.usuario_telefono || "")}${Number(member.usuario_activo) ? "" : " · Desactivado"}</span></span><button class="button small secondary" type="button" data-edit-member="${Number(member.usuario_id)}">Editar</button></div>`).join("")
+      : '<div class="empty-state">Aún no hay usuarios fuera de la estructura. Usa "+ Usuario de la organización" para crear uno.</div>'}`;
+}
+
 function showStructureOrganization(orgId) {
   activeStructureOrgId = orgId;
   const org = activeStructureOrg();
@@ -1991,6 +2012,7 @@ function showStructureOrganization(orgId) {
     orgView.style.setProperty("--org", structureOrgColor(org));
     document.getElementById("structure-org-title").textContent = org.nombre;
     renderStructureTree();
+    renderStructureMembers();
     populateStructureUnitSelect();
   } else {
     renderStructureOrganizations();
@@ -2143,6 +2165,7 @@ async function loadStructure() {
   territories = result.territories;
   structureOrganizations = result.organizations || [];
   structureAssignments = result.assignments || [];
+  structureMembers = result.members || [];
   populateEventStates();
   if (activeStructureOrg()) showStructureOrganization(activeStructureOrgId);
   else {
@@ -2210,15 +2233,46 @@ async function importParishes() {
   }
 }
 
+function setStructureFormMode(mode) {
+  const form = document.getElementById("structure-form");
+  form.dataset.mode = mode;
+  document.getElementById("structure-territory-field").hidden = mode === "member";
+}
+
 function resetStructureForm() {
   const form = document.getElementById("structure-form");
   form.reset();
+  setStructureFormMode("unit");
   form.elements.namedItem("userId").value = "";
   form.elements.namedItem("organizationId").value = activeStructureOrgId || "";
   document.getElementById("structure-form-title").textContent = `Nueva cuenta · ${activeStructureOrg()?.nombre || "movilizador"}`;
   document.getElementById("structure-message").textContent = "";
   document.getElementById("structure-message").classList.remove("visible");
   form.hidden = false;
+}
+
+function newOrganizationMember() {
+  resetStructureForm();
+  const form = document.getElementById("structure-form");
+  setStructureFormMode("member");
+  form.elements.namedItem("territoryId").value = "";
+  document.getElementById("structure-form-title").textContent = `Nuevo usuario · ${activeStructureOrg()?.nombre || "organización"}`;
+  document.getElementById("structure-password-help").textContent = "Este usuario no tiene unidad territorial: solo accede al portal de movilizadores. Contraseña de al menos 8 caracteres.";
+  form.scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+
+function editOrganizationMember(userId) {
+  const member = structureMembers.find(item => Number(item.usuario_id) === userId);
+  if (!member) return;
+  newOrganizationMember();
+  const form = document.getElementById("structure-form");
+  form.elements.namedItem("userId").value = member.usuario_id;
+  form.elements.namedItem("name").value = member.usuario_nombre || "";
+  form.elements.namedItem("phone").value = member.usuario_telefono || "";
+  form.elements.namedItem("email").value = member.usuario_correo || "";
+  form.elements.namedItem("active").value = Number(member.usuario_activo) ? "1" : "0";
+  document.getElementById("structure-form-title").textContent = "Editar usuario de la organización";
+  document.getElementById("structure-password-help").textContent = "Deja la contraseña vacía para conservar la actual. Una nueva debe tener al menos 8 caracteres.";
 }
 
 function editStructureUser(unitId) {
@@ -2250,6 +2304,11 @@ async function saveStructureUser(event) {
     showFormMessage(message, "La contraseña debe tener al menos 8 caracteres.");
     return;
   }
+  const isMember = form.dataset.mode === "member";
+  if (!isMember && !data.get("territoryId")) {
+    showFormMessage(message, "Selecciona la unidad territorial.");
+    return;
+  }
   const button = document.getElementById("save-structure-user");
   button.disabled = true;
   try {
@@ -2260,7 +2319,7 @@ async function saveStructureUser(event) {
         name: data.get("name"),
         phone: data.get("phone"),
         email: data.get("email"),
-        territoryId: Number(data.get("territoryId")),
+        territoryId: isMember || !data.get("territoryId") ? null : Number(data.get("territoryId")),
         organizationId: Number(data.get("organizationId")),
         active: data.get("active") === "1",
         password
@@ -3526,7 +3585,10 @@ function appendTrackingLocation(location, force = false) {
   const current = activeTracking;
   if (!current) return Promise.resolve();
   const previous = current.points.at(-1);
-  if (!force && previous && distanceMeters(previous, location) < POINT_DISTANCE_METERS) return pointSaveChain;
+  // Latido: aunque la persona esté quieta, se guarda un punto cada 30 s para que administración
+  // vea que el GPS sigue vivo (si no, parecería una señal perdida).
+  const heartbeat = previous && Number(location.time) - Number(previous.time) >= TRACKING_HEARTBEAT_MS;
+  if (!force && !heartbeat && previous && distanceMeters(previous, location) < POINT_DISTANCE_METERS) return pointSaveChain;
   current.points.push(location);
   const trackingMap = workflowTrackingMaps.get(current.assignmentId)?.map || detailMap;
   if (trackingMap) {
@@ -4007,6 +4069,11 @@ document.getElementById("structure-orgs").addEventListener("click", event => {
   if (card) showStructureOrganization(Number(card.dataset.openOrg));
 });
 document.getElementById("new-structure-user").addEventListener("click", resetStructureForm);
+document.getElementById("new-org-member").addEventListener("click", newOrganizationMember);
+document.getElementById("structure-members").addEventListener("click", event => {
+  const edit = event.target.closest("[data-edit-member]");
+  if (edit) editOrganizationMember(Number(edit.dataset.editMember));
+});
 document.getElementById("cancel-structure-user").addEventListener("click", () => {
   document.getElementById("structure-form").hidden = true;
 });
