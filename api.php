@@ -1249,7 +1249,7 @@ try {
         // El estado de cada registro sale de la unidad del usuario: estado, o el estado al que pertenece su
         // municipio o parroquia. Sin unidad (o a nivel nacional) queda sin estado y el resumen lo cuenta como "Otros".
         $assignmentQuery = $pdo->prepare(
-            'SELECT e.nombre AS ente, me.id AS assignment_id, me.personas_planificadas, me.personas_asistentes, me.cuota_personas, me.vehiculos_json, ' .
+            'SELECT e.nombre AS ente, u.nombre AS responsable, me.id AS assignment_id, me.personas_planificadas, me.personas_asistentes, me.cuota_personas, me.vehiculos_json, ' .
             (($_GET['map'] ?? '') === '1' ? 'me.ruta_personal_geojson AS ruta_personal_geojson_mapa, me.punto_salida_lat, me.punto_salida_lng, ' : '') .
             'me.cantidad_autobuses, me.plan_confirmado_en, ' .
             ($zoneColumn ? 'COALESCE(me.zona_estado, ' : '(') .
@@ -1322,10 +1322,18 @@ try {
         $photos = [];
         if (($_GET['photos'] ?? '') === '1') {
             $photoListQuery = $pdo->prepare(
-                'SELECT fa.id, fa.movilizacion_ente_id AS assignment_id, e.nombre AS ente, fa.tipo, fa.vehiculo_id, ' .
-                'fa.ruta_archivo, fa.nombre_original, fa.subido_en ' .
+                'SELECT fa.id, fa.movilizacion_ente_id AS assignment_id, e.nombre AS ente, u.nombre AS responsable, ' .
+                ($zoneColumn ? 'COALESCE(me.zona_estado, ' : '(') .
+                "CASE ut.nivel WHEN 'estadal' THEN ut.nombre WHEN 'municipal' THEN up.nombre " .
+                "WHEN 'parroquial' THEN upp.nombre ELSE NULL END) AS estado_registro, " .
+                'fa.tipo, fa.vehiculo_id, fa.ruta_archivo, fa.nombre_original, fa.subido_en ' .
                 'FROM fotos_asistencia fa JOIN movilizacion_entes me ON me.id = fa.movilizacion_ente_id ' .
-                'JOIN entes e ON e.id = me.ente_id WHERE me.movilizacion_id = ? ORDER BY e.nombre, fa.subido_en, fa.id'
+                'JOIN entes e ON e.id = me.ente_id ' .
+                'LEFT JOIN usuarios u ON u.id = me.responsable_usuario_id ' .
+                'LEFT JOIN unidades_territoriales ut ON ut.id = u.unidad_territorial_id ' .
+                'LEFT JOIN unidades_territoriales up ON up.id = ut.padre_id ' .
+                'LEFT JOIN unidades_territoriales upp ON upp.id = up.padre_id ' .
+                'WHERE me.movilizacion_id = ? ORDER BY e.nombre, fa.subido_en, fa.id'
             );
             $photoListQuery->execute([$eventId]);
             foreach ($photoListQuery->fetchAll() as $photo) {
